@@ -21,10 +21,10 @@ type MetaData = {
  */
 interface File {
   _id: string;
-  file_path: string;
-  extension: string;
-  url_path: string | null;
-  filetype: string | null;
+  // file_path: string;
+  // extension: string;
+  // url_path: string | null;
+  // filetype: string | null;
   metadata: MetaData | null;
   [key: string]: any;
 }
@@ -34,11 +34,22 @@ class MddbFile {
   static supportedExtensions = ["md", "mdx"];
   static defaultProperties = [
     "_id",
-    "file_path",
-    "extension",
-    "url_path",
-    "filetype",
+    "asset_raw_path",
+    "asset_locator",
+    "asset_type",
+    "asset_store_tag",
+    "asset_size",
+    "is_asset_heavy",
+    "has_derived_children",
+    "deriving_parent_id",
+    "asset_raw_bytes",
+    "origin_file_path",
+    "origin_file_extension",
     "metadata",
+    "links",
+    "publish_time_by_metadata",
+    "is_deleted_by_hoard",
+    "update_time_by_hoard",
   ];
 
   _id: string;
@@ -72,11 +83,22 @@ class MddbFile {
   static async createTable(db: Knex, properties: string[]) {
     const creator = (table: Knex.TableBuilder) => {
       table.string("_id").primary();
-      table.string("file_path").unique().notNullable();
-      table.string("extension").notNullable();
-      table.string("url_path");
-      table.string("filetype");
-      table.string("metadata");
+      table.string("asset_raw_path", 16384).unique().notNullable();
+      table.string("asset_locator", 16384);
+      table.string("asset_type");
+      table.string("asset_store_tag", 32);
+      table.bigInteger("asset_size");
+      table.boolean("is_asset_heavy");
+      table.boolean("has_derived_children");
+      table.string("deriving_parent_id", 128);
+      table.binary("asset_raw_bytes");
+      table.string("origin_file_path", 16384).notNullable();
+      table.string("origin_file_extension", 16).notNullable();
+      table.text("metadata", "LONGTEXT");
+      table.text("links", "LONGTEXT");
+      table.bigInteger("publish_time_by_metadata");
+      table.boolean("is_deleted_by_hoard");
+      table.bigInteger("update_time_by_hoard");
       properties.forEach((property) => {
         if (
           MddbFile.defaultProperties.indexOf(property) === -1 &&
@@ -101,8 +123,8 @@ class MddbFile {
     if (!areUniqueObjectsByKey(files, "_id")) {
       throw new Error("Files must have unique _id");
     }
-    if (!areUniqueObjectsByKey(files, "file_path")) {
-      throw new Error("Files must have unique file_path");
+    if (!areUniqueObjectsByKey(files, "asset_raw_path")) {
+      throw new Error("Files must have unique asset_raw_path");
     }
 
     const serializedFiles = files.map((file) => {
@@ -113,7 +135,7 @@ class MddbFile {
         // If the value is undefined, default it to null
         if (value !== undefined) {
           const shouldStringify =
-            (key === "metadata" || !MddbFile.defaultProperties.includes(key)) &&
+            (key === "metadata" || key === "links" || !MddbFile.defaultProperties.includes(key)) &&
             typeof value === "object";
           // Stringify all user-defined fields and metadata
           serializedFile[key] = shouldStringify ? JSON.stringify(value) : value;
@@ -125,16 +147,18 @@ class MddbFile {
       return serializedFile;
     });
 
-    if (serializedFiles.length >= 500) {
-      const promises = [];
+    {
+      const promises: Promise<unknown>[] = [];
       for (let i = 0; i < serializedFiles.length; i += 500) {
-        promises.push(
-          db.batchInsert(Table.Files, serializedFiles.slice(i, i + 500))
-        );
+        const currBatchI = i;
+        promises.push((async () => {
+          const currBatch = serializedFiles.slice(currBatchI, currBatchI + 500);
+          // console.log(currBatch);
+          await db(Table.Files).delete().whereIn("_id", currBatch.map(f => f._id));
+          return await db.batchInsert(Table.Files, currBatch);
+        })());
       }
       return Promise.all(promises);
-    } else {
-      return db.batchInsert(Table.Files, serializedFiles);
     }
   }
 }
@@ -173,10 +197,10 @@ class MddbLink {
     const creator = (table: Knex.TableBuilder) => {
       // table.string("_id").primary();
       table.enum("link_type", ["normal", "embed"]).notNullable();
-      table.string("from").notNullable();
-      table.string("to").notNullable();
-      table.foreign("from").references("files._id").onDelete("CASCADE");
-      table.foreign("to").references("files._id").onDelete("CASCADE");
+      table.string("from", 16384).notNullable();
+      table.string("to", 16384).notNullable();
+      /* table.foreign("from").references("files._id").onDelete("CASCADE"); */
+      /* table.foreign("to").references("files._id").onDelete("CASCADE"); */
     };
     const tableExists = await db.schema.hasTable(this.table);
 
@@ -191,7 +215,7 @@ class MddbLink {
 
   static batchInsert(db: Knex, links: Link[]) {
     if (links.length >= 500) {
-      const promises = [];
+      const promises: Promise<unknown>[] = [];
       for (let i = 0; i < links.length; i += 500) {
         promises.push(db.batchInsert(Table.Links, links.slice(i, i + 500)));
       }
@@ -227,7 +251,7 @@ class MddbTag {
 
   static async createTable(db: Knex) {
     const creator = (table: Knex.TableBuilder) => {
-      table.string("name").primary();
+      table.string("name", 16384).primary();
       // table.string("description");
     };
     const tableExists = await db.schema.hasTable(this.table);
@@ -247,7 +271,7 @@ class MddbTag {
     }
 
     if (tags.length >= 500) {
-      const promises = [];
+      const promises: Promise<unknown>[] = [];
       for (let i = 0; i < tags.length; i += 500) {
         promises.push(db.batchInsert(Table.Tags, tags.slice(i, i + 500)));
       }
@@ -276,7 +300,7 @@ class MddbFileTag {
 
   static async createTable(db: Knex) {
     const creator = (table: Knex.TableBuilder) => {
-      table.string("tag").notNullable();
+      table.string("tag", 16384).notNullable();
       table.string("file").notNullable();
 
       // TODO this is now saved as tag name, not as tag id ...
@@ -296,7 +320,7 @@ class MddbFileTag {
 
   static batchInsert(db: Knex, fileTags: FileTag[]) {
     if (fileTags.length >= 500) {
-      const promises = [];
+      const promises: Promise<unknown>[] = [];
       for (let i = 0; i < fileTags.length; i += 500) {
         promises.push(
           db.batchInsert(Table.FileTags, fileTags.slice(i, i + 500))
@@ -348,7 +372,7 @@ class MddbTask {
 
   static async createTable(db: Knex) {
     const creator = (table: Knex.TableBuilder) => {
-      table.string("description").notNullable();
+      table.text("description", "LONGTEXT").notNullable();
       table.boolean("checked").notNullable();
       table.string("file").notNullable();
       table.string("due");
@@ -357,7 +381,7 @@ class MddbTask {
       table.string("start");
       table.string("scheduled");
       table.string("list");
-      table.string("metadata");
+      table.text("metadata", "LONGTEXT");
     };
     const tableExists = await db.schema.hasTable(this.table);
 
@@ -372,7 +396,7 @@ class MddbTask {
 
   static batchInsert(db: Knex, tasks: Task[]) {
     if (tasks.length >= 500) {
-      const promises = [];
+      const promises: Promise<unknown>[] = [];
       for (let i = 0; i < tasks.length; i += 500) {
         promises.push(db.batchInsert(Table.Tasks, tasks.slice(i, i + 500)));
       }

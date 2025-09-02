@@ -2,8 +2,8 @@ import fs from "fs";
 import path from "path";
 
 // TODO move to separate packages, as this function is duplicated in remark-wiki-link
-export function recursiveWalkDir(dir: string): string[] {
-  const dirents = fs.readdirSync(dir, { withFileTypes: true });
+export async function recursiveWalkDir(dir: string): Promise<string[]> {
+  const dirents = await fs.promises.readdir(dir, { withFileTypes: true });
   const files = dirents
     .filter((dirent) => dirent.isFile())
     .map((dirent) => path.join(dir, dirent.name));
@@ -11,7 +11,7 @@ export function recursiveWalkDir(dir: string): string[] {
     .filter((dirent) => dirent.isDirectory())
     .map((dirent) => path.join(dir, dirent.name));
   for (const d of dirs) {
-    files.push(...recursiveWalkDir(d));
+    files.push(...await recursiveWalkDir(d));
   }
   return files;
 }

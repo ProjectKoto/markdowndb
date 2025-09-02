@@ -12,9 +12,11 @@ export async function resetDatabaseTables(db: Knex) {
   }
 }
 
-export function mapFileToInsert(file: any) {
-  const { tags, links, ...rest } = file;
-  return { ...rest };
+export function mapFileToInsert(file: any, updateTime: number) {
+  // const { tags, links, ...rest } = file;
+  const { tags, ...rest } = file;
+  // return { ...rest };
+  return { ...rest, update_time_by_hoard: updateTime };
 }
 
 export function mapLinksToInsert(filesToInsert: File[], file: any) {
@@ -39,8 +41,8 @@ function findFileToInsert(filesToInsert: File[], filePath: string) {
     path.basename(filePath, path.extname(filePath))
   );
 
-  return filesToInsert.find(({ url_path }) => {
-    const normalizedFile = path.normalize(url_path || "");
+  return filesToInsert.find(({ asset_url_path }) => {
+    const normalizedFile = path.normalize(asset_url_path || "");
     return normalizedFile === filePathWithoutExt;
   });
 }

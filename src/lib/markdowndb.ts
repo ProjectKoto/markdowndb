@@ -19,6 +19,8 @@ import { FileInfo, processFile } from "./process.js";
 import chokidar from "chokidar";
 import { recursiveWalkDir } from "./recursiveWalkDir.js";
 import { loadConfig } from "./loadConfig.js";
+import debounce from 'debounce';
+import replaceAll from 'string.prototype.replaceall';
 
 const defaultFilePathToUrl = (filePath: string) => {
   let url = filePath
@@ -48,6 +50,7 @@ const resolveLinkToUrlPath = (link: string, sourceFilePath?: string) => {
 export class MarkdownDB {
   config: Knex.Config;
   db: Knex;
+  pendingUpdate: {[key: string]: FileInfo};
 
   /**
    * Constructs a new MarkdownDB instance.
@@ -63,6 +66,7 @@ export class MarkdownDB {
    */
   async init() {
     this.db = knex({ ...this.config, useNullAsDefault: true });
+    this.pendingUpdate = {};
     return this;
   }
 
@@ -91,7 +95,7 @@ export class MarkdownDB {
     configFilePath?: string;
   }) {
     const config = customConfig || (await loadConfig(configFilePath)) || {};
-    const fileObjects = indexFolder(
+    const fileObjects = await indexFolder(
       folderPath,
       pathToUrlResolver,
       config,
@@ -104,10 +108,12 @@ export class MarkdownDB {
         ignoreInitial: true,
       });
 
-      const filePathsToIndex = recursiveWalkDir(folderPath);
+      const filePathsToIndex = await recursiveWalkDir(folderPath);
       const computedFields = config.computedFields || [];
+      const saveDataFuncToDebounce = () => { this.saveDataToDiskIncr(); };
+      const saveDataFuncDebounced = debounce(saveDataFuncToDebounce, 200);
 
-      const handleFileEvent = (event: string, filePath: string) => {
+      const handleFileEvent = async (event: string, filePath: string) => {
         if (
           !shouldIncludeFile({
             filePath,
@@ -119,55 +125,80 @@ export class MarkdownDB {
           return;
         }
 
+        const relativePath = path.relative(folderPath, filePath);
+        const relativePathForwardSlash = replaceAll(relativePath, '\\', '/');
+
         if (event === "unlink") {
-          const index = fileObjects.findIndex(
-            (obj) => obj.file_path === filePath
-          );
-          if (index !== -1) {
-            fileObjects.splice(index, 1);
+          for (const f of fileObjects) {
+            if (f.origin_file_path === relativePathForwardSlash) {
+              f.is_deleted_by_hoard = true;
+              this.pendingUpdate[f.asset_raw_path] = f;
+            }
           }
+
           console.log(`File ${filePath} has been removed`);
+          saveDataFuncDebounced();
           return;
         }
 
-        const fileObject = processFile(
+        const fileObjectsOfCurrOrigFile = await processFile(
           folderPath,
           filePath,
           pathToUrlResolver,
           filePathsToIndex,
-          computedFields
-        );
-        const index = fileObjects.findIndex(
-          (obj) => obj.file_path === filePath
+          computedFields,
+          config,
         );
 
-        if (index !== -1) {
-          fileObjects[index] = fileObject;
-        } else {
-          fileObjects.push(fileObject);
+        for (let i = 0; i < fileObjects.length; i++) {
+          const f = fileObjects[i];
+          if (f.origin_file_path !== relativePathForwardSlash) {
+            continue;
+          }
+          f.is_deleted_by_hoard = true;
+          for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
+            if (f.asset_raw_path === fileObjectOfCurrOrigFile.asset_raw_path) {
+              // so that is_deleted_by_hoard is removed after replace
+              fileObjects[i] = fileObjectOfCurrOrigFile;
+              fileObjectOfCurrOrigFile.isAlreadyExist = true;
+              break;
+            }
+          }
+
+          // this correctly handles both delete & update
+          this.pendingUpdate[fileObjects[i].asset_raw_path] = fileObjects[i];
+        }
+        for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
+          if (!fileObjectOfCurrOrigFile.isAlreadyExist) {
+            fileObjects.push(fileObjectOfCurrOrigFile);
+            this.pendingUpdate[fileObjectOfCurrOrigFile.asset_raw_path] = fileObjectOfCurrOrigFile;
+          }
+          delete fileObjectOfCurrOrigFile.isAlreadyExist;
         }
 
         console.log(
           `File ${filePath} has been ${event === "add" ? "added" : "updated"}`
         );
+        saveDataFuncDebounced();
       };
 
       watcher
         .on("add", (filePath) => handleFileEvent("add", filePath))
         .on("change", (filePath) => handleFileEvent("change", filePath))
         .on("unlink", (filePath) => handleFileEvent("unlink", filePath))
-        .on("all", () => this.saveDataToDisk(fileObjects))
+        // .on("all", () => this.saveDataToDisk(fileObjects))
         .on("error", (error) => console.error(`Watcher error: ${error}`));
     }
   }
 
   private async saveDataToDisk(fileObjects: FileInfo[]) {
+    const nowTimestamp = Date.now();
     await resetDatabaseTables(this.db);
     const properties = getUniqueProperties(fileObjects);
     MddbFile.deleteTable(this.db);
     await MddbFile.createTable(this.db, properties);
 
-    const filesToInsert = fileObjects.map(mapFileToInsert);
+    const filesToInsert = fileObjects.map(f => mapFileToInsert(f, nowTimestamp));
     const uniqueTags = getUniqueValues(
       fileObjects.flatMap((file) => file.tags)
     );
@@ -187,6 +218,11 @@ export class MarkdownDB {
     await MddbFileTag.batchInsert(this.db, fileTagsToInsert);
     await MddbLink.batchInsert(this.db, getUniqueValues(linksToInsert));
     await MddbTask.batchInsert(this.db, tasksToInsert);
+  }
+  async saveDataToDiskIncr() {
+    const nowTimestamp = Date.now();
+    const filesToInsert = Object.values(this.pendingUpdate).map(f => mapFileToInsert(f, nowTimestamp));
+    await MddbFile.batchInsert(this.db, filesToInsert);
   }
 
   /**

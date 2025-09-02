@@ -8,16 +8,14 @@ import remarkWikiLink from "@portaljs/remark-wiki-link";
 import { Root } from "remark-parse/lib";
 import { MetaData, Task } from "./schema";
 
-export function parseFile(source: string, options?: ParsingOptions) {
-  // Metadata
-  const { data: metadata } = matter(source);
+export function parseFile(metadata: { [key: string]: any }, sourceWithoutMatter: string, options?: ParsingOptions) {
 
   // Obsidian style tags i.e. tags: tag1, tag2, tag3
   if (metadata.tags && typeof metadata.tags === "string") {
     metadata.tags = metadata.tags.split(",").map((tag: string) => tag.trim());
   }
 
-  const ast = processAST(source, options);
+  const ast = processAST(sourceWithoutMatter, options);
 
   const bodyTags = extractTagsFromBody(ast);
   metadata.tags = metadata.tags ? [...metadata.tags, ...bodyTags] : bodyTags;
@@ -31,7 +29,6 @@ export function parseFile(source: string, options?: ParsingOptions) {
 
   return {
     ast,
-    metadata,
     links,
   };
 }
@@ -250,6 +247,9 @@ export function extractAllTaskMetadata(description: string) : MetaData  {
     matches.forEach((match) => {
       // extract field and value from groups in the match
       const allMatches = match.matchAll(metadataRegex).next().value;
+      if (allMatches === undefined) {
+        return;
+      }
       const field = allMatches[1].trim();
       const value = allMatches[2].trim();
       metadata[field] = value;
