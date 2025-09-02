@@ -8,7 +8,6 @@ import { File, Task } from "./schema.js";
 import { WikiLink, parseFile } from "./parseFile.js";
 import { Root } from "remark-parse/lib/index.js";
 import { CustomConfig } from "./CustomConfig.js";
-import { Node } from "unist-util-select";
 
 export interface FileInfo extends File {
   tags: string[];
@@ -23,7 +22,7 @@ export async function processFile(
   filePath: string,
   pathToUrlResolver: (filePath: string) => string,
   filePathsToIndex: string[],
-  computedFields: ((fileInfo: FileInfo, ast: Node) => any)[],
+  computedFields: ((fileInfo: FileInfo, ast: Root) => any)[],
   config: CustomConfig,
 ) {
   // Remove rootFolder from filePath
@@ -77,7 +76,7 @@ export async function processFile(
     fileInfo.asset_raw_bytes = raw;
 
     let source: string | undefined = undefined;
-    const getSourceSync = () => {
+    const getSourceFunc = () => {
       if (source === undefined) {
         source = raw.toString('utf-8');
       }
@@ -86,7 +85,7 @@ export async function processFile(
 
     // if (await config.isHasFrontMatter(relativePathForwardSlash)) {
     if (isDedicated) {
-      const source = getSourceSync();
+      const source = getSourceFunc();
       const { data: metadata, content: sourceWithoutMatter } = matter(source);
       fileInfo.asset_raw_bytes = Buffer.from(sourceWithoutMatter, "utf-8")
 
@@ -124,14 +123,16 @@ export async function processFile(
             const customFieldFunction = computedFields[index];
             customFieldFunction(currFileInfo, ast);
           }
-          // await config.markdownExtraHandler(relativePathForwardSlash, getSourceSync, fileInfo, fileInfoList, { ast, metadata, links, tags });
+          if (config.markdownExtraHandler) {
+            await config.markdownExtraHandler(relativePathForwardSlash, getSourceFunc, fileInfo, fileInfoList, { ast, metadata, links, tags });
+          }
         }
       }
     }
 
-    // for (const handler of config.otherHandlers ?? []) {
-    //     await handler(relativePathForwardSlash, getSourceSync, fileInfo);
-    // }
+    for (const handler of config.otherHandlers ?? []) {
+      await handler(relativePathForwardSlash, getSourceFunc, fileInfo);
+    }
   }
 
   fileInfoList.forEach(x => {
