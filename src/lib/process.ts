@@ -30,7 +30,7 @@ export async function processFile(
   const relativePathForwardSlash: string = replaceAll(relativePath, '\\', '/');
   // removes path segments for archiving
   const assetRawPath = relativePathForwardSlash.split('/').filter(x => !(x.length >= 2 && x[0] === '[' && x[x.length - 1] === ']')).join('/');
-  const [isDedicated, assetLocator, extension] = (await config.handleDedicated(assetRawPath));
+  let [isDedicated, assetLocator, extension] = (await config.handleDedicated(assetRawPath));
   // const assetLocatorComponents = assetLocator.split('/');
   // const assetLocatorBasename = assetLocatorComponents[assetLocatorComponents.length - 1];
   // const assetLocatorParent = assetLocatorComponents.slice(0, assetLocatorComponents.length - 1).join('/') + '/';
@@ -97,6 +97,18 @@ export async function processFile(
       fileInfo.publish_time_by_metadata = (metadata?.publishTime) ?? (metadata?.publish_time) ?? null;
       if (fileInfo.publish_time_by_metadata) {
         fileInfo.publish_time_by_metadata = new Date(fileInfo.publish_time_by_metadata).getTime()
+      }
+      if (metadata?.tkLocatorBase && typeof metadata?.tkLocatorBase === 'string') {
+        // override
+        const overrideParts = assetLocator.split('/')
+        overrideParts[overrideParts.length - 1] = metadata?.tkLocatorBase
+        assetLocator = overrideParts.join('/')
+        fileInfo.asset_locator = assetLocator
+      }
+      if (metadata?.tkLocator && typeof metadata?.tkLocator === 'string') {
+        // override
+        assetLocator = metadata?.tkLocator
+        fileInfo.asset_locator = assetLocator
       }
       const tags = metadata?.tags || [];
       fileInfo.tags = tags;
