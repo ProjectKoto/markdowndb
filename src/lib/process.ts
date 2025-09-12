@@ -101,7 +101,16 @@ export async function processFile(
       if (metadata?.tkLocatorBase && typeof metadata?.tkLocatorBase === 'string') {
         // override
         const overrideParts = assetLocator.split('/')
-        overrideParts[overrideParts.length - 1] = metadata?.tkLocatorBase
+
+        if (metadata?.tkLocatorBase.startsWith('-^') && metadata?.tkLocatorBase.length > 2) {
+          const stripPrefix = metadata?.tkLocatorBase.substring(2)
+          const originBase = overrideParts[overrideParts.length - 1]
+          if (originBase.startsWith(stripPrefix)) {
+            overrideParts[overrideParts.length - 1] = originBase.substring(stripPrefix.length)
+          }
+        } else {
+          overrideParts[overrideParts.length - 1] = metadata?.tkLocatorBase
+        }
         assetLocator = overrideParts.join('/')
         fileInfo.asset_locator = assetLocator
       }
