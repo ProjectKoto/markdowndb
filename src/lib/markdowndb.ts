@@ -114,72 +114,76 @@ export class MarkdownDB {
       const saveDataFuncDebounced = debounce(saveDataFuncToDebounce, 200);
 
       const handleFileEvent = async (event: string, filePath: string) => {
-        if (
-          !shouldIncludeFile({
+        try {
+          if (
+            !shouldIncludeFile({
+              filePath,
+              ignorePatterns,
+              includeGlob: config.include,
+              excludeGlob: config.exclude,
+            })
+          ) {
+            return;
+          }
+
+          const relativePath = path.relative(folderPath, filePath);
+          const relativePathForwardSlash = replaceAll(relativePath, '\\', '/');
+
+          if (event === "unlink") {
+            for (const f of fileObjects) {
+              if (f.origin_file_path === relativePathForwardSlash) {
+                f.is_deleted_by_hoard = true;
+                this.pendingUpdate[f.asset_raw_path] = f;
+              }
+            }
+
+            console.log(`File ${filePath} has been removed`);
+            saveDataFuncDebounced();
+            return;
+          }
+
+          const fileObjectsOfCurrOrigFile = await processFile(
+            folderPath,
             filePath,
-            ignorePatterns,
-            includeGlob: config.include,
-            excludeGlob: config.exclude,
-          })
-        ) {
-          return;
-        }
+            pathToUrlResolver,
+            filePathsToIndex,
+            computedFields,
+            config,
+          );
 
-        const relativePath = path.relative(folderPath, filePath);
-        const relativePathForwardSlash = replaceAll(relativePath, '\\', '/');
-
-        if (event === "unlink") {
-          for (const f of fileObjects) {
-            if (f.origin_file_path === relativePathForwardSlash) {
-              f.is_deleted_by_hoard = true;
-              this.pendingUpdate[f.asset_raw_path] = f;
+          for (let i = 0; i < fileObjects.length; i++) {
+            const f = fileObjects[i];
+            if (f.origin_file_path !== relativePathForwardSlash) {
+              continue;
             }
+            f.is_deleted_by_hoard = true;
+            for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
+              if (f.asset_raw_path === fileObjectOfCurrOrigFile.asset_raw_path) {
+                // so that is_deleted_by_hoard is removed after replace
+                fileObjects[i] = fileObjectOfCurrOrigFile;
+                fileObjectOfCurrOrigFile.isAlreadyExist = true;
+                break;
+              }
+            }
+
+            // this correctly handles both delete & update
+            this.pendingUpdate[fileObjects[i].asset_raw_path] = fileObjects[i];
           }
-
-          console.log(`File ${filePath} has been removed`);
-          saveDataFuncDebounced();
-          return;
-        }
-
-        const fileObjectsOfCurrOrigFile = await processFile(
-          folderPath,
-          filePath,
-          pathToUrlResolver,
-          filePathsToIndex,
-          computedFields,
-          config,
-        );
-
-        for (let i = 0; i < fileObjects.length; i++) {
-          const f = fileObjects[i];
-          if (f.origin_file_path !== relativePathForwardSlash) {
-            continue;
-          }
-          f.is_deleted_by_hoard = true;
           for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
-            if (f.asset_raw_path === fileObjectOfCurrOrigFile.asset_raw_path) {
-              // so that is_deleted_by_hoard is removed after replace
-              fileObjects[i] = fileObjectOfCurrOrigFile;
-              fileObjectOfCurrOrigFile.isAlreadyExist = true;
-              break;
+            if (!fileObjectOfCurrOrigFile.isAlreadyExist) {
+              fileObjects.push(fileObjectOfCurrOrigFile);
+              this.pendingUpdate[fileObjectOfCurrOrigFile.asset_raw_path] = fileObjectOfCurrOrigFile;
             }
+            delete fileObjectOfCurrOrigFile.isAlreadyExist;
           }
 
-          // this correctly handles both delete & update
-          this.pendingUpdate[fileObjects[i].asset_raw_path] = fileObjects[i];
+          console.log(
+            `File ${filePath} has been ${event === "add" ? "added" : "updated"}`
+          );
+          saveDataFuncDebounced();
+        } catch (e) {
+          console.error('mddb handleFileEvent error', e);
         }
-        for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
-          if (!fileObjectOfCurrOrigFile.isAlreadyExist) {
-            fileObjects.push(fileObjectOfCurrOrigFile);
-            this.pendingUpdate[fileObjectOfCurrOrigFile.asset_raw_path] = fileObjectOfCurrOrigFile;
-          }
-          delete fileObjectOfCurrOrigFile.isAlreadyExist;
-        }
-
-        console.log(
-          `File ${filePath} has been ${event === "add" ? "added" : "updated"}`
-        );
-        saveDataFuncDebounced();
       };
 
       watcher
