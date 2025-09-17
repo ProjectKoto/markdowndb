@@ -113,7 +113,10 @@ export class MarkdownDB {
       const saveDataFuncToDebounce = () => { this.saveDataToDiskIncr(); };
       const saveDataFuncDebounced = debounce(saveDataFuncToDebounce, 200);
 
-      const handleFileEvent = async (event: string, filePath: string) => {
+      let fileEventHandler = undefined as ((event: string, filePath: string) => Promise<void>) | undefined;
+      let fileEventHandlerNoRetry = undefined as ((event: string, filePath: string) => Promise<void>) | undefined;
+
+      const fileEventHandlerBuilder = (shouldScheduleRetryOnErr: boolean) => async (event: string, filePath: string) => {
         try {
           if (
             !shouldIncludeFile({
@@ -182,14 +185,22 @@ export class MarkdownDB {
           );
           saveDataFuncDebounced();
         } catch (e) {
-          console.error('mddb handleFileEvent error', e);
+          console.error(`mddb handleFileEvent error, shouldScheduleRetryOnErr=${shouldScheduleRetryOnErr}`, e);
+          if (shouldScheduleRetryOnErr) {
+            setTimeout(async () => {
+              fileEventHandlerNoRetry!(event, filePath);
+            }, 1000)
+          }
         }
       };
 
+      fileEventHandler = fileEventHandlerBuilder(true);
+      fileEventHandlerNoRetry = fileEventHandlerBuilder(false);
+
       watcher
-        .on("add", (filePath) => handleFileEvent("add", filePath))
-        .on("change", (filePath) => handleFileEvent("change", filePath))
-        .on("unlink", (filePath) => handleFileEvent("unlink", filePath))
+        .on("add", (filePath) => fileEventHandler("add", filePath))
+        .on("change", (filePath) => fileEventHandler("change", filePath))
+        .on("unlink", (filePath) => fileEventHandler("unlink", filePath))
         // .on("all", () => this.saveDataToDisk(fileObjects))
         .on("error", (error) => console.error(`Watcher error: ${error}`));
     }
