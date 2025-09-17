@@ -198,9 +198,9 @@ export class MarkdownDB {
       fileEventHandlerNoRetry = fileEventHandlerBuilder(false);
 
       watcher
-        .on("add", (filePath) => fileEventHandler("add", filePath))
-        .on("change", (filePath) => fileEventHandler("change", filePath))
-        .on("unlink", (filePath) => fileEventHandler("unlink", filePath))
+        .on("add", (filePath) => fileEventHandler!("add", filePath))
+        .on("change", (filePath) => fileEventHandler!("change", filePath))
+        .on("unlink", (filePath) => fileEventHandler!("unlink", filePath))
         // .on("all", () => this.saveDataToDisk(fileObjects))
         .on("error", (error) => console.error(`Watcher error: ${error}`));
     }
