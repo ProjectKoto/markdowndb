@@ -17,8 +17,12 @@ export function parseFile(metadata: { [key: string]: any }, sourceWithoutMatter:
 
   const ast = processAST(sourceWithoutMatter, options);
 
-  const bodyTags = extractTagsFromBody(ast);
-  metadata.tags = metadata.tags ? [...metadata.tags, ...bodyTags] : bodyTags;
+  // const bodyTags = extractTagsFromBody(ast);
+  // metadata.tags = metadata.tags ? [...metadata.tags, ...bodyTags] : bodyTags;
+
+  if (!metadata?.tags) {
+    metadata.tags = [];
+  }
 
   // Links
   const links = extractWikiLinks(ast, options);
