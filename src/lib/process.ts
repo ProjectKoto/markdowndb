@@ -66,7 +66,7 @@ export async function processFile(
     bigint: false,
   })
   fileInfo.asset_size = stat.size;
-
+  fileInfo.update_time_by_hoard = Math.ceil(stat.mtimeMs)
   fileInfo.is_asset_heavy = isDedicated ? false : (stat.size > (32 * 1024));
 
   if (!fileInfo.is_asset_heavy) {

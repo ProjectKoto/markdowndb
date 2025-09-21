@@ -16,7 +16,11 @@ export function mapFileToInsert(file: any, updateTime: number) {
   // const { tags, links, ...rest } = file;
   const { tags, ...rest } = file;
   // return { ...rest };
-  return { ...rest, update_time_by_hoard: updateTime };
+  const overrider: { [x: string]: any } = {}
+  if (file.update_time_by_hoard === undefined) {
+    overrider.update_time_by_hoard = updateTime;
+  }
+  return { ...rest, ...overrider };
 }
 
 export function mapLinksToInsert(filesToInsert: File[], file: any) {
