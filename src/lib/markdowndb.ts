@@ -112,7 +112,7 @@ export class MarkdownDB {
       const filePathsToIndex = await recursiveWalkDir(folderPath);
       const computedFields = config.computedFields || [];
       const saveDataFuncToDebounce = () => { this.saveDataToDiskIncr(firstIndexTimestamp); };
-      const saveDataFuncDebounced = debounce(saveDataFuncToDebounce, 200);
+      const saveDataFuncDebounced = debounce(saveDataFuncToDebounce, 1000);
 
       let fileEventHandler = undefined as ((event: string, filePath: string) => Promise<void>) | undefined;
       let fileEventHandlerNoRetry = undefined as ((event: string, filePath: string) => Promise<void>) | undefined;
@@ -139,6 +139,8 @@ export class MarkdownDB {
               if (f.origin_file_path === relativePathForwardSlash) {
                 f.is_deleted_by_hoard = true;
                 this.pendingUpdate[f.asset_raw_path] = f;
+                // deleted (parent + children) files should have "now" timestamp, not their own modified time
+                f.update_time_by_hoard = eventTimestamp;
               }
             }
 
@@ -158,6 +160,7 @@ export class MarkdownDB {
 
           for (let i = 0; i < fileObjects.length; i++) {
             const f = fileObjects[i];
+            // only handle current origin file's parsed file and its children
             if (f.origin_file_path !== relativePathForwardSlash) {
               continue;
             }
@@ -175,12 +178,17 @@ export class MarkdownDB {
             this.pendingUpdate[fileObjects[i].asset_raw_path] = fileObjects[i];
           }
           for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
-            if (!fileObjectOfCurrOrigFile.isAlreadyExist) {
+            if (fileObjectOfCurrOrigFile.isAlreadyExist) {
+              if (fileObjectOfCurrOrigFile.is_deleted_by_hoard) {
+                // deleted part of (parent + children) files should have "now" timestamp, not their own modified time
+                fileObjectOfCurrOrigFile.update_time_by_hoard = eventTimestamp;
+              }
+            } else {
               fileObjects.push(fileObjectOfCurrOrigFile);
               this.pendingUpdate[fileObjectOfCurrOrigFile.asset_raw_path] = fileObjectOfCurrOrigFile;
 
               // new / moved files should have "now" timestamp, not their own modified time
-              fileObjectOfCurrOrigFile.update_time_by_hoard = eventTimestamp
+              fileObjectOfCurrOrigFile.update_time_by_hoard = eventTimestamp;
             }
             delete fileObjectOfCurrOrigFile.isAlreadyExist;
           }
@@ -194,7 +202,7 @@ export class MarkdownDB {
           if (shouldScheduleRetryOnErr) {
             setTimeout(async () => {
               fileEventHandlerNoRetry!(event, filePath);
-            }, 1000)
+            }, 1600)
           }
         }
       };
@@ -239,8 +247,11 @@ export class MarkdownDB {
     await MddbTask.batchInsert(this.db, tasksToInsert);
   }
   async saveDataToDiskIncr(operateTimestamp: number) {
-    const filesToInsert = Object.values(this.pendingUpdate).map(f => mapFileToInsert(f, operateTimestamp));
+    const currPendingUpdate = this.pendingUpdate
+    this.pendingUpdate = {}
+    const filesToInsert = Object.values(currPendingUpdate).map(f => mapFileToInsert(f, operateTimestamp));
     await MddbFile.batchInsert(this.db, filesToInsert);
+    
   }
 
   /**
