@@ -95,13 +95,14 @@ export class MarkdownDB {
     configFilePath?: string;
   }) {
     const config = customConfig || (await loadConfig(configFilePath)) || {};
+    const firstIndexTimestamp = Date.now();
     const fileObjects = await indexFolder(
       folderPath,
       pathToUrlResolver,
       config,
       ignorePatterns
     );
-    await this.saveDataToDisk(fileObjects);
+    await this.saveDataToDisk(fileObjects, firstIndexTimestamp);
 
     if (watch) {
       const watcher = chokidar.watch(folderPath, {
@@ -110,7 +111,7 @@ export class MarkdownDB {
 
       const filePathsToIndex = await recursiveWalkDir(folderPath);
       const computedFields = config.computedFields || [];
-      const saveDataFuncToDebounce = () => { this.saveDataToDiskIncr(); };
+      const saveDataFuncToDebounce = () => { this.saveDataToDiskIncr(firstIndexTimestamp); };
       const saveDataFuncDebounced = debounce(saveDataFuncToDebounce, 200);
 
       let fileEventHandler = undefined as ((event: string, filePath: string) => Promise<void>) | undefined;
@@ -118,6 +119,7 @@ export class MarkdownDB {
 
       const fileEventHandlerBuilder = (shouldScheduleRetryOnErr: boolean) => async (event: string, filePath: string) => {
         try {
+          const eventTimestamp = Date.now();
           if (
             !shouldIncludeFile({
               filePath,
@@ -176,6 +178,9 @@ export class MarkdownDB {
             if (!fileObjectOfCurrOrigFile.isAlreadyExist) {
               fileObjects.push(fileObjectOfCurrOrigFile);
               this.pendingUpdate[fileObjectOfCurrOrigFile.asset_raw_path] = fileObjectOfCurrOrigFile;
+
+              // new / moved files should have "now" timestamp, not their own modified time
+              fileObjectOfCurrOrigFile.update_time_by_hoard = eventTimestamp
             }
             delete fileObjectOfCurrOrigFile.isAlreadyExist;
           }
@@ -206,14 +211,13 @@ export class MarkdownDB {
     }
   }
 
-  private async saveDataToDisk(fileObjects: FileInfo[]) {
-    const nowTimestamp = Date.now();
+  private async saveDataToDisk(fileObjects: FileInfo[], operateTimestamp: number) {
     await resetDatabaseTables(this.db);
     const properties = getUniqueProperties(fileObjects);
     MddbFile.deleteTable(this.db);
     await MddbFile.createTable(this.db, properties);
 
-    const filesToInsert = fileObjects.map(f => mapFileToInsert(f, nowTimestamp));
+    const filesToInsert = fileObjects.map(f => mapFileToInsert(f, operateTimestamp));
     const uniqueTags = getUniqueValues(
       fileObjects.flatMap((file) => file.tags)
     );
@@ -234,9 +238,8 @@ export class MarkdownDB {
     await MddbLink.batchInsert(this.db, getUniqueValues(linksToInsert));
     await MddbTask.batchInsert(this.db, tasksToInsert);
   }
-  async saveDataToDiskIncr() {
-    const nowTimestamp = Date.now();
-    const filesToInsert = Object.values(this.pendingUpdate).map(f => mapFileToInsert(f, nowTimestamp));
+  async saveDataToDiskIncr(operateTimestamp: number) {
+    const filesToInsert = Object.values(this.pendingUpdate).map(f => mapFileToInsert(f, operateTimestamp));
     await MddbFile.batchInsert(this.db, filesToInsert);
   }
 
