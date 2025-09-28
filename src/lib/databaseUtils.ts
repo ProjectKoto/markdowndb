@@ -14,7 +14,7 @@ export async function resetDatabaseTables(db: Knex) {
 
 export function mapFileToInsert(file: any, updateTime: number) {
   // const { tags, links, ...rest } = file;
-  const { tags, ...rest } = file;
+  const { referencedTags, declaredTags, ...rest } = file;
   // return { ...rest };
   const overrider: { [x: string]: any } = {}
   if (file.update_time_by_hoard === undefined) {
@@ -56,9 +56,13 @@ export function isLinkToDefined(link: any) {
 }
 
 export function mapFileTagsToInsert(file: any) {
-  return file.tags.map((tag: any) => ({
+  const refSet = new Set(file.referencedTags)
+  const declSet = new Set(file.declaredTags)
+  return [...file.referencedTags, ...file.declaredTags].map((tag: any) => ({
     file: file._id,
     tag: tag as unknown as string,
+    is_referenced: refSet.has(tag),
+    is_declared: declSet.has(tag),
   }));
 }
 

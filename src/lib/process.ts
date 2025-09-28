@@ -10,7 +10,8 @@ import { Root } from "remark-parse/lib/index.js";
 import { CustomConfig } from "./CustomConfig.js";
 
 export interface FileInfo extends File {
-  tags: string[];
+  referencedTags: string[];
+  declaredTags: string[];
   links: WikiLink[];
   tasks: Task[];
 }
@@ -51,7 +52,8 @@ export async function processFile(
     origin_file_path: relativePathForwardSlash,
     origin_file_extension: extension,
     metadata: {},
-    tags: [],
+    referencedTags: [],
+    declaredTags: [],
     links: [],
     tasks: [],
   };
@@ -92,6 +94,21 @@ export async function processFile(
       // will remove later
       fileInfo._sourceWithoutMatter = sourceWithoutMatter;
       fileInfo.metadata = metadata;
+      const tzOffsetMinute = (() => {
+        const tzOffsetStr = process.env.HOARD_METADATA_DATE_TIMEZONE_OFFSET_MINUTE;
+        if (tzOffsetStr) {
+          return Number.parseInt(tzOffsetStr)
+        }
+        return undefined
+      })();
+      if (tzOffsetMinute !== undefined && tzOffsetMinute !== 0) {
+        for (const k of Object.keys(metadata)) {
+          const v = metadata[k];
+          if (v && v instanceof Date) {
+            v.setMinutes(v.getMinutes() - tzOffsetMinute)
+          }
+        }
+      }
       const assetType = metadata?.type || null;
       fileInfo.asset_type = assetType;
       fileInfo.publish_time_by_metadata = (metadata?.publishTime) ?? (metadata?.publish_time) ?? null;
@@ -119,8 +136,10 @@ export async function processFile(
         assetLocator = metadata?.tkLocator
         fileInfo.asset_locator = assetLocator
       }
-      const tags = metadata?.tags || [];
-      fileInfo.tags = tags;
+      if (metadata) {
+        metadata.tags = metadata?.tags || [];
+      }
+      fileInfo.declaredTags = metadata.tags;
       fileInfo.tasks = metadata?.tasks || [];
 
       const derivedChildFileInfoList = await config.deriveChildFileInfo(
@@ -135,17 +154,22 @@ export async function processFile(
 
       if (await config.isExtensionMarkdown(extension)) {
         for (const currFileInfo of [fileInfo, ...derivedChildFileInfoList]) {
-          const { ast, links } = parseFile(currFileInfo.metadata || {}, currFileInfo._sourceWithoutMatter, {
+          if (!currFileInfo.metadata) {
+            currFileInfo.metadata = {}
+          }
+          const { ast, links } = parseFile(currFileInfo.metadata!, currFileInfo._sourceWithoutMatter, {
             from: relativePath,
             permalinks: filePathsToIndex,
           });
+          currFileInfo.declaredTags = currFileInfo.metadata.tags;
+          currFileInfo.referencedTags = currFileInfo.metadata.referencedTags;
           currFileInfo.links = links;
           for (let index = 0; index < computedFields.length; index++) {
             const customFieldFunction = computedFields[index];
             customFieldFunction(currFileInfo, ast);
           }
           if (config.markdownExtraHandler) {
-            await config.markdownExtraHandler(relativePathForwardSlash, getSourceFunc, fileInfo, fileInfoList, { ast, metadata, links, tags });
+            await config.markdownExtraHandler(relativePathForwardSlash, getSourceFunc, fileInfo, fileInfoList, { ast, metadata: currFileInfo.metadata, links, tags: currFileInfo.metadata.tags });
           }
         }
       }

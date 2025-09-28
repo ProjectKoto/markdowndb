@@ -159,7 +159,7 @@ export class MarkdownDB {
           );
 
           for (let i = 0; i < fileObjects.length; i++) {
-            const f = fileObjects[i];
+            let f = fileObjects[i];
             // only handle current origin file's parsed file and its children
             if (f.origin_file_path !== relativePathForwardSlash) {
               continue;
@@ -169,9 +169,15 @@ export class MarkdownDB {
               if (f.asset_raw_path === fileObjectOfCurrOrigFile.asset_raw_path) {
                 // so that is_deleted_by_hoard is removed after replace
                 fileObjects[i] = fileObjectOfCurrOrigFile;
+                f = fileObjectOfCurrOrigFile;
                 fileObjectOfCurrOrigFile.isAlreadyExist = true;
                 break;
               }
+            }
+
+            if (f.is_deleted_by_hoard) {
+              // deleted part of (parent + children) files should have "now" timestamp, not their own modified time
+              f.update_time_by_hoard = eventTimestamp;
             }
 
             // this correctly handles both delete & update
@@ -179,10 +185,7 @@ export class MarkdownDB {
           }
           for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
             if (fileObjectOfCurrOrigFile.isAlreadyExist) {
-              if (fileObjectOfCurrOrigFile.is_deleted_by_hoard) {
-                // deleted part of (parent + children) files should have "now" timestamp, not their own modified time
-                fileObjectOfCurrOrigFile.update_time_by_hoard = eventTimestamp;
-              }
+              // 
             } else {
               fileObjects.push(fileObjectOfCurrOrigFile);
               this.pendingUpdate[fileObjectOfCurrOrigFile.asset_raw_path] = fileObjectOfCurrOrigFile;
@@ -227,7 +230,7 @@ export class MarkdownDB {
 
     const filesToInsert = fileObjects.map(f => mapFileToInsert(f, operateTimestamp));
     const uniqueTags = getUniqueValues(
-      fileObjects.flatMap((file) => file.tags)
+      fileObjects.flatMap((file) => [...file.referencedTags, ...file.declaredTags])
     );
     const tagsToInsert = uniqueTags.map((tag) => ({ name: tag }));
     const linksToInsert = fileObjects

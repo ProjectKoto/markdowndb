@@ -38,7 +38,8 @@ export async function indexFolder(
       const flattenedFileObject = {
         ...fileObject,
         ...fileObject.metadata,
-        tags: fileObject.tags, // Don't override the tags
+        referencedTags: fileObject.referencedTags, // Don't override the tags
+        declaredTags: fileObject.declaredTags, // Don't override the tags
       };
       const documentType = urlPath.split("/")[0];
 

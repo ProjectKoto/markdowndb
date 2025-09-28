@@ -102,7 +102,7 @@ class MddbFile {
       properties.forEach((property) => {
         if (
           MddbFile.defaultProperties.indexOf(property) === -1 &&
-          ["tags", "links"].indexOf(property) === -1
+          ["tags", "referencedTags", "declaredTags", "links"].indexOf(property) === -1
         ) {
           table.string(property);
         }
@@ -285,16 +285,22 @@ class MddbTag {
 interface FileTag {
   tag: string;
   file: string;
+  is_referenced: boolean;
+  is_declared: boolean;
 }
 
 class MddbFileTag {
   static table = Table.FileTags;
   // _id: string;
   tag: string;
+  is_declared: boolean;
+  is_referenced: boolean;
   file: string;
 
   constructor(fileTag: any) {
     this.tag = fileTag.tag;
+    this.is_declared = fileTag.is_declared;
+    this.is_referenced = fileTag.is_referenced;
     this.file = fileTag.file;
   }
 
@@ -302,6 +308,8 @@ class MddbFileTag {
     const creator = (table: Knex.TableBuilder) => {
       table.string("tag", 16384).notNullable();
       table.string("file").notNullable();
+      table.boolean("is_declared").notNullable();
+      table.boolean("is_referenced").notNullable();
 
       // TODO this is now saved as tag name, not as tag id ...
       table.foreign("tag").references("tags.name").onDelete("CASCADE");

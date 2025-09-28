@@ -17,8 +17,8 @@ export function parseFile(metadata: { [key: string]: any }, sourceWithoutMatter:
 
   const ast = processAST(sourceWithoutMatter, options);
 
-  // const bodyTags = extractTagsFromBody(ast);
-  // metadata.tags = metadata.tags ? [...metadata.tags, ...bodyTags] : bodyTags;
+  const referencedTags = extractTagsFromBody(ast);
+  metadata.referencedTags = metadata.referencedTags ? [...metadata.referencedTags, ...referencedTags] : referencedTags;
 
   if (!metadata?.tags) {
     metadata.tags = [];
@@ -27,6 +27,7 @@ export function parseFile(metadata: { [key: string]: any }, sourceWithoutMatter:
   // Links
   const links = extractWikiLinks(ast, options);
   metadata.tags = Array.from(new Set(metadata.tags));
+  metadata.referencedTags = Array.from(new Set(metadata.referencedTags));
 
   const tasks = extractTasks(ast, metadata);
   metadata.tasks = tasks;
@@ -81,7 +82,8 @@ export const extractTagsFromBody = (ast: Root) => {
 
 function extractTags(text: string) {
   let tags: any = [];
-  const textTags = text.match(/(?:^|\s+|\n+|\r+)#([a-zA-Z0-9_\-/\p{L}]+)/gu);
+  // const textTags = text.match(/(?:^|\s+|\n+|\r+)#([a-zA-Z0-9_\-/\p{L}]+)/gu);
+  const textTags = text.match(/(?:^|\s+|\n+|\r+)#(?:[^#"'\s]*[^#"'\s0-9][^#"'\s]*)/g);
   if (textTags) {
     tags = tags.concat(
       textTags
@@ -97,9 +99,10 @@ function isValidTag(tag: string) {
   // Check if the tag follows the specified rules
   return (
     tag.length > 1 &&
-    /[a-zA-Z_\-/\p{L}]+/gu.test(tag) && // At least one non-numerical character
-    !/\s/.test(tag) && // No blank spaces
-    /[a-zA-Z0-9_\-/\p{L}]+/gu.test(tag) // Valid characters: alphabetical letters, numbers, underscore, hyphen, forward slash, and any letter in any language
+    true
+    // /[a-zA-Z_\-/\p{L}]+/gu.test(tag) && // At least one non-numerical character
+    // !/\s/.test(tag) && // No blank spaces
+    // /[a-zA-Z0-9_\-/\p{L}]+/gu.test(tag) // Valid characters: alphabetical letters, numbers, underscore, hyphen, forward slash, and any letter in any language
   );
 }
 
