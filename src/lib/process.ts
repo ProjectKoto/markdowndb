@@ -95,7 +95,7 @@ export async function processFile(
       fileInfo._sourceWithoutMatter = sourceWithoutMatter;
       fileInfo.metadata = metadata;
       const tzOffsetMinute = (() => {
-        const tzOffsetStr = process.env.HOARD_METADATA_DATE_TIMEZONE_OFFSET_MINUTE;
+        const tzOffsetStr = process.env.PROCESS_HOARD_METADATA_DATE_TIMEZONE_OFFSET_MINUTE;
         if (tzOffsetStr) {
           return Number.parseInt(tzOffsetStr)
         }
