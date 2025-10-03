@@ -5,7 +5,7 @@ import matter from "gray-matter";
 import replaceAll from 'string.prototype.replaceall';
 
 import { File, Task } from "./schema.js";
-import { WikiLink, parseFile } from "./parseFile.js";
+import { WikiLink, handleDeclaredTags, parseFile } from "./parseFile.js";
 import { Root } from "remark-parse/lib/index.js";
 import { CustomConfig } from "./CustomConfig.js";
 
@@ -95,7 +95,7 @@ export async function processFile(
       fileInfo._sourceWithoutMatter = sourceWithoutMatter;
       fileInfo.metadata = metadata;
       const tzOffsetMinute = (() => {
-        const tzOffsetStr = process.env.PROCESS_HOARD_METADATA_DATE_TIMEZONE_OFFSET_MINUTE;
+        const tzOffsetStr = process.env.PROCENV_HOARD_METADATA_DATE_TIMEZONE_OFFSET_MINUTE;
         if (tzOffsetStr) {
           return Number.parseInt(tzOffsetStr)
         }
@@ -111,7 +111,7 @@ export async function processFile(
       }
       const assetType = metadata?.type || null;
       fileInfo.asset_type = assetType;
-      fileInfo.publish_time_by_metadata = (metadata?.publishTime) ?? (metadata?.publish_time) ?? null;
+      fileInfo.publish_time_by_metadata = (metadata?.publishTime) ?? (metadata?.pubTime) ?? (metadata?.publish_time) ?? null;
       if (fileInfo.publish_time_by_metadata) {
         fileInfo.publish_time_by_metadata = new Date(fileInfo.publish_time_by_metadata).getTime()
       }
@@ -137,9 +137,9 @@ export async function processFile(
         fileInfo.asset_locator = assetLocator
       }
       if (metadata) {
-        metadata.tags = metadata?.tags || [];
+        metadata.declaredTags = metadata?.declaredTags || [];
       }
-      fileInfo.declaredTags = metadata.tags;
+      fileInfo.declaredTags = metadata.declaredTags;
       fileInfo.tasks = metadata?.tasks || [];
 
       const derivedChildFileInfoList = await config.deriveChildFileInfo(
@@ -161,7 +161,6 @@ export async function processFile(
             from: relativePath,
             permalinks: filePathsToIndex,
           });
-          currFileInfo.declaredTags = currFileInfo.metadata.tags;
           currFileInfo.referencedTags = currFileInfo.metadata.referencedTags;
           currFileInfo.links = links;
           for (let index = 0; index < computedFields.length; index++) {
@@ -169,8 +168,10 @@ export async function processFile(
             customFieldFunction(currFileInfo, ast);
           }
           if (config.markdownExtraHandler) {
-            await config.markdownExtraHandler(relativePathForwardSlash, getSourceFunc, fileInfo, fileInfoList, { ast, metadata: currFileInfo.metadata, links, tags: currFileInfo.metadata.tags });
+            await config.markdownExtraHandler(relativePathForwardSlash, getSourceFunc, fileInfo, fileInfoList, { ast, metadata: currFileInfo.metadata, links, tags: currFileInfo.metadata.declaredTags });
           }
+          handleDeclaredTags(currFileInfo.metadata!);
+          currFileInfo.declaredTags = currFileInfo.metadata.declaredTags;
         }
       }
     }

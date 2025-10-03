@@ -10,23 +10,13 @@ import { MetaData, Task } from "./schema";
 
 export function parseFile(metadata: { [key: string]: any }, sourceWithoutMatter: string, options?: ParsingOptions) {
 
-  // Obsidian style tags i.e. tags: tag1, tag2, tag3
-  if (metadata.tags && typeof metadata.tags === "string") {
-    metadata.tags = metadata.tags.split(",").map((tag: string) => tag.trim());
-  }
-
   const ast = processAST(sourceWithoutMatter, options);
 
   const referencedTags = extractTagsFromBody(ast);
   metadata.referencedTags = metadata.referencedTags ? [...metadata.referencedTags, ...referencedTags] : referencedTags;
 
-  if (!metadata?.tags) {
-    metadata.tags = [];
-  }
-
   // Links
   const links = extractWikiLinks(ast, options);
-  metadata.tags = Array.from(new Set(metadata.tags));
   metadata.referencedTags = Array.from(new Set(metadata.referencedTags));
 
   const tasks = extractTasks(ast, metadata);
@@ -36,6 +26,20 @@ export function parseFile(metadata: { [key: string]: any }, sourceWithoutMatter:
     ast,
     links,
   };
+}
+
+export function handleDeclaredTags(metadata: { [key: string]: any }) {
+
+  // Obsidian style tags i.e. tags: tag1, tag2, tag3
+  if (metadata.declaredTags && typeof metadata.declaredTags === "string") {
+    metadata.declaredTags = metadata.declaredTags.split(",").map((tag: string) => tag.trim());
+  }
+
+  if (!metadata?.declaredTags) {
+    metadata.declaredTags = [];
+  }
+
+  metadata.declaredTags = Array.from(new Set(metadata.declaredTags));
 }
 
 // Exported for testing
@@ -262,7 +266,7 @@ export function extractAllTaskMetadata(description: string) : MetaData  {
       metadata[field] = value;
     }); // Add closing parenthesis here
     const tags = extractTags(description);
-    metadata["tags"] = tags;
+    metadata["declaredTags"] = tags;
     return metadata;
   } else {
     return {};
