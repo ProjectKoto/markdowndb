@@ -1,0 +1,327 @@
+import path from "path";
+import knex from "knex";
+import { MddbFile, MddbTag, MddbLink, MddbFileTag, MddbTask } from "./schema.js";
+import { indexFolder, shouldIncludeFile } from "./indexFolder.js";
+import { resetDatabaseTables, mapFileToInsert, mapLinksToInsert, isLinkToDefined, mapFileTagsToInsert, getUniqueValues, getUniqueProperties, mapTasksToInsert, } from "./databaseUtils.js";
+import fs from "fs";
+import { processFile } from "./process.js";
+import chokidar from "chokidar";
+import { recursiveWalkDir } from "./recursiveWalkDir.js";
+import { loadConfig } from "./loadConfig.js";
+import debounce from 'debounce';
+import replaceAll from 'string.prototype.replaceall';
+const defaultFilePathToUrl = (filePath) => {
+    let url = filePath
+        .replace(/\.(mdx|md)/, "")
+        .replace(/\\/g, "/") // replace windows backslash with forward slash
+        .replace(/(\/)?index$/, ""); // remove index from the end of the permalink
+    url = url.length > 0 ? url : "/"; // for home page
+    return encodeURI(url);
+};
+const resolveLinkToUrlPath = (link, sourceFilePath) => {
+    if (!sourceFilePath) {
+        return link;
+    }
+    // needed to make path.resolve work correctly
+    // becuase we store urls without leading slash
+    const sourcePath = "/" + sourceFilePath;
+    const dir = path.dirname(sourcePath);
+    const resolved = path.resolve(dir, link);
+    // remove leading slash
+    return resolved.slice(1);
+};
+/**
+ * MarkdownDB class for managing a Markdown database.
+ */
+export class MarkdownDB {
+    /**
+     * Constructs a new MarkdownDB instance.
+     * @param {Knex.Config} config - Knex configuration object.
+     */
+    constructor(config) {
+        this.config = config;
+    }
+    /**
+     * Initializes the MarkdownDB instance and database connection.
+     * @returns {Promise<MarkdownDB>} - A promise resolving to the initialized MarkdownDB instance.
+     */
+    async init() {
+        this.db = knex({ ...this.config, useNullAsDefault: true });
+        this.pendingUpdate = {};
+        return this;
+    }
+    /**
+     * Indexes the files in a specified folder and updates the database accordingly.
+     * @param {Object} options - Options for indexing the folder.
+     * @param {string} options.folderPath - The path of the folder to be indexed.
+     * @param {RegExp[]} [options.ignorePatterns=[]] - Array of RegExp patterns to ignore during indexing.
+     * @param {(filePath: string) => string} [options.pathToUrlResolver=defaultFilePathToUrl] - Function to resolve file paths to URLs.
+     * @returns {Promise<void>} - A promise resolving when the indexing is complete.
+     */
+    async indexFolder({ folderPath, 
+    // TODO support glob patterns
+    ignorePatterns = [], pathToUrlResolver = defaultFilePathToUrl, customConfig, watch = false, configFilePath, }) {
+        const config = customConfig || (await loadConfig(configFilePath)) || {};
+        const firstIndexTimestamp = Date.now();
+        const fileObjects = await indexFolder(folderPath, pathToUrlResolver, config, ignorePatterns);
+        await this.saveDataToDisk(fileObjects, firstIndexTimestamp);
+        if (watch) {
+            const watcher = chokidar.watch(folderPath, {
+                ignoreInitial: true,
+            });
+            const filePathsToIndex = await recursiveWalkDir(folderPath);
+            const computedFields = config.computedFields || [];
+            const saveDataFuncToDebounce = () => { this.saveDataToDiskIncr(firstIndexTimestamp); };
+            const saveDataFuncDebounced = debounce(saveDataFuncToDebounce, 1000);
+            let fileEventHandler = undefined;
+            let fileEventHandlerNoRetry = undefined;
+            const fileEventHandlerBuilder = (shouldScheduleRetryOnErr) => async (event, filePath) => {
+                try {
+                    const eventTimestamp = Date.now();
+                    if (!shouldIncludeFile({
+                        filePath,
+                        ignorePatterns,
+                        includeGlob: config.include,
+                        excludeGlob: config.exclude,
+                    })) {
+                        return;
+                    }
+                    const relativePath = path.relative(folderPath, filePath);
+                    const relativePathForwardSlash = replaceAll(relativePath, '\\', '/');
+                    if (event === "unlink") {
+                        for (const f of fileObjects) {
+                            if (f.origin_file_path === relativePathForwardSlash) {
+                                f.is_deleted_by_hoard = true;
+                                this.pendingUpdate[f.asset_raw_path] = f;
+                                // deleted (parent + children) files should have "now" timestamp, not their own modified time
+                                f.update_time_by_hoard = eventTimestamp;
+                            }
+                        }
+                        console.log(`File ${filePath} has been removed`);
+                        saveDataFuncDebounced();
+                        return;
+                    }
+                    const fileObjectsOfCurrOrigFile = await processFile(folderPath, filePath, pathToUrlResolver, filePathsToIndex, computedFields, config);
+                    for (let i = 0; i < fileObjects.length; i++) {
+                        let f = fileObjects[i];
+                        // only handle current origin file's parsed file and its children
+                        if (f.origin_file_path !== relativePathForwardSlash) {
+                            continue;
+                        }
+                        f.is_deleted_by_hoard = true;
+                        for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
+                            if (f.asset_raw_path === fileObjectOfCurrOrigFile.asset_raw_path) {
+                                // so that is_deleted_by_hoard is removed after replace
+                                fileObjects[i] = fileObjectOfCurrOrigFile;
+                                f = fileObjectOfCurrOrigFile;
+                                fileObjectOfCurrOrigFile.isAlreadyExist = true;
+                                break;
+                            }
+                        }
+                        if (f.is_deleted_by_hoard) {
+                            // deleted part of (parent + children) files should have "now" timestamp, not their own modified time
+                            f.update_time_by_hoard = eventTimestamp;
+                        }
+                        // this correctly handles both delete & update
+                        this.pendingUpdate[fileObjects[i].asset_raw_path] = fileObjects[i];
+                    }
+                    for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
+                        if (fileObjectOfCurrOrigFile.isAlreadyExist) {
+                            // 
+                        }
+                        else {
+                            fileObjects.push(fileObjectOfCurrOrigFile);
+                            this.pendingUpdate[fileObjectOfCurrOrigFile.asset_raw_path] = fileObjectOfCurrOrigFile;
+                            // new / moved files should have "now" timestamp, not their own modified time
+                            fileObjectOfCurrOrigFile.update_time_by_hoard = eventTimestamp;
+                        }
+                        delete fileObjectOfCurrOrigFile.isAlreadyExist;
+                    }
+                    console.log(`File ${filePath} has been ${event === "add" ? "added" : "updated"}`);
+                    saveDataFuncDebounced();
+                }
+                catch (e) {
+                    console.error(`mddb handleFileEvent error, shouldScheduleRetryOnErr=${shouldScheduleRetryOnErr}`, e);
+                    if (shouldScheduleRetryOnErr) {
+                        setTimeout(async () => {
+                            fileEventHandlerNoRetry(event, filePath);
+                        }, 1600);
+                    }
+                }
+            };
+            fileEventHandler = fileEventHandlerBuilder(true);
+            fileEventHandlerNoRetry = fileEventHandlerBuilder(false);
+            watcher
+                .on("add", (filePath) => fileEventHandler("add", filePath))
+                .on("change", (filePath) => fileEventHandler("change", filePath))
+                .on("unlink", (filePath) => fileEventHandler("unlink", filePath))
+                // .on("all", () => this.saveDataToDisk(fileObjects))
+                .on("error", (error) => console.error(`Watcher error: ${error}`));
+        }
+    }
+    async saveDataToDisk(fileObjects, operateTimestamp) {
+        await resetDatabaseTables(this.db);
+        const properties = getUniqueProperties(fileObjects);
+        MddbFile.deleteTable(this.db);
+        await MddbFile.createTable(this.db, properties);
+        const filesToInsert = fileObjects.map(f => mapFileToInsert(f, operateTimestamp));
+        const uniqueTags = getUniqueValues(fileObjects.flatMap((file) => [...file.referencedTags, ...file.declaredTags]));
+        const tagsToInsert = uniqueTags.map((tag) => ({ name: tag }));
+        const linksToInsert = fileObjects
+            .flatMap((fileObject) => {
+            return mapLinksToInsert(filesToInsert, fileObject);
+        })
+            .filter(isLinkToDefined);
+        const fileTagsToInsert = fileObjects.flatMap(mapFileTagsToInsert);
+        const tasksToInsert = fileObjects.flatMap(mapTasksToInsert);
+        writeJsonToFile(".markdowndb/files.json", fileObjects);
+        await MddbFile.batchInsert(this.db, filesToInsert);
+        await MddbTag.batchInsert(this.db, tagsToInsert);
+        await MddbFileTag.batchInsert(this.db, fileTagsToInsert);
+        await MddbLink.batchInsert(this.db, getUniqueValues(linksToInsert));
+        await MddbTask.batchInsert(this.db, tasksToInsert);
+    }
+    async saveDataToDiskIncr(operateTimestamp) {
+        const currPendingUpdate = this.pendingUpdate;
+        this.pendingUpdate = {};
+        const filesToInsert = Object.values(currPendingUpdate).map(f => mapFileToInsert(f, operateTimestamp));
+        await MddbFile.batchInsert(this.db, filesToInsert);
+    }
+    /**
+     * Retrieves a file from the database by its ID.
+     * @param {string} id - The ID of the file to retrieve.
+     * @returns {Promise<MddbFile | null>} - A promise resolving to the retrieved file or null if not found.
+     */
+    async getFileById(id) {
+        const file = await this.db.from("files").where("_id", id).first();
+        return new MddbFile(file);
+    }
+    /**
+     * Retrieves a file from the database by its URL.
+     * @param {string} url - The URL of the file to retrieve.
+     * @returns {Promise<MddbFile | null>} - A promise resolving to the retrieved file or null if not found.
+     */
+    async getFileByUrl(url) {
+        const file = await this.db
+            .from("files")
+            .where("url_path", encodeURI(url))
+            .first();
+        return new MddbFile(file);
+    }
+    /**
+     * Retrieves files from the database based on the specified query parameters.
+     * @param {Object} [query] - Query parameters for filtering files.
+     * @param {string} [query.folder] - The folder to filter files by.
+     * @param {string[]} [query.filetypes] - Array of file types to filter by.
+     * @param {string[]} [query.tags] - Array of tags to filter by.
+     * @param {string[]} [query.extensions] - Array of file extensions to filter by.
+     * @param {Record<string, string | number | boolean>} [query.frontmatter] - Object representing frontmatter key-value pairs for filtering.
+     * @returns {Promise<MddbFile[]>} - A promise resolving to an array of retrieved files.
+     */
+    async getFiles(query) {
+        const { filetypes, tags, extensions, folder, frontmatter } = query || {};
+        const files = await this.db
+            // TODO join only if tags are specified ?
+            .leftJoin("file_tags", "files._id", "file_tags.file")
+            .where((builder) => {
+            // TODO temporary solution before we have a proper way to filter files by and assign file types
+            if (folder) {
+                builder.whereLike("url_path", `${folder}/%`);
+            }
+            if (tags) {
+                builder.whereIn("tag", tags);
+            }
+            if (extensions) {
+                builder.whereIn("extension", extensions);
+            }
+            if (filetypes) {
+                builder.whereIn("filetype", filetypes);
+            }
+            if (frontmatter) {
+                Object.entries(frontmatter).forEach(([key, value]) => {
+                    if (typeof value === "string" || typeof value === "number") {
+                        builder.whereRaw(`json_extract(metadata, '$.${key}') = ?`, [
+                            value,
+                        ]);
+                    }
+                    else if (typeof value === "boolean") {
+                        if (value) {
+                            builder.whereRaw(`json_extract(metadata, '$.${key}') = ?`, [
+                                true,
+                            ]);
+                        }
+                        else {
+                            builder.where(function () {
+                                this.whereRaw(`json_extract(metadata, '$.${key}') = ?`, [
+                                    false,
+                                ]).orWhereRaw(`json_extract(metadata, '$.${key}') IS NULL`);
+                            });
+                        }
+                    }
+                    // To check if the provided value exists in an array inside the JSON
+                    else {
+                        builder.whereRaw(`json_extract(metadata, '$.${key}') LIKE ?`, [
+                            `%${value}%`,
+                        ]);
+                    }
+                });
+            }
+        })
+            .select("files.*")
+            .from("files")
+            .groupBy("_id");
+        return files.map((file) => new MddbFile(file));
+    }
+    /**
+     * Retrieves all tags from the database.
+     * @returns {Promise<MddbTag[]>} - A promise resolving to an array of retrieved tags.
+     */
+    async getTags() {
+        const tags = await this.db("tags").select();
+        return tags.map((tag) => new MddbTag(tag));
+    }
+    /**
+     * Retrieves links associated with a file based on the specified query parameters.
+     * @param {Object} [query] - Query parameters for filtering links.
+     * @param {string} query.fileId - The ID of the file to retrieve links for.
+     * @param {"normal" | "embed"} [query.linkType] - Type of link to filter by (normal or embed).
+     * @param {"forward" | "backward"} [query.direction="forward"] - Direction of the link (forward or backward).
+     * @returns {Promise<MddbLink[]>} - A promise resolving to an array of retrieved links.
+     */
+    async getLinks(query) {
+        const { fileId, direction = "forward", linkType } = query || {};
+        const joinKey = direction === "forward" ? "from" : "to";
+        const where = {
+            [joinKey]: fileId,
+        };
+        if (linkType) {
+            where["link_type"] = linkType;
+        }
+        const dbLinks = await this.db
+            .select("links.*")
+            .from("links")
+            .rightJoin("files", `links.${joinKey}`, "=", "files._id")
+            .where(where);
+        const links = dbLinks.map((link) => new MddbLink(link));
+        return links;
+    }
+    /**
+     * Destroys the database connection.
+     */
+    _destroyDb() {
+        this.db.destroy();
+    }
+}
+function writeJsonToFile(filePath, jsonData) {
+    try {
+        const directory = path.dirname(filePath);
+        if (!fs.existsSync(directory)) {
+            fs.mkdirSync(directory, { recursive: true });
+        }
+        const jsonString = JSON.stringify(jsonData, null, 2);
+        fs.writeFileSync(filePath, jsonString);
+    }
+    catch (error) {
+        console.error(`Error writing data to ${filePath}: ${error}`);
+    }
+}
