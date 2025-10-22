@@ -107,6 +107,8 @@ export class MarkdownDB {
     if (watch) {
       const watcher = chokidar.watch(folderPath, {
         ignoreInitial: true,
+	awaitWriteFinish: true,
+	atomic: true,
       });
 
       const filePathsToIndex = await recursiveWalkDir(folderPath);
