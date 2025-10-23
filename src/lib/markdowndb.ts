@@ -1,4 +1,5 @@
 import path from "path";
+import process from "process";
 import knex, { Knex } from "knex";
 
 import { MddbFile, MddbTag, MddbLink, MddbFileTag, MddbTask } from "./schema.js";
@@ -244,7 +245,7 @@ export class MarkdownDB {
 
     const tasksToInsert = fileObjects.flatMap(mapTasksToInsert);
 
-    writeJsonToFile(".markdowndb/files.json", fileObjects);
+    writeJsonToFile((process.env.PROCENV_HOARD_MARKDOWNDB_FILES_JSON_PATH || ".markdowndb/files.json"), fileObjects);
     await MddbFile.batchInsert(this.db, filesToInsert);
     await MddbTag.batchInsert(this.db, tagsToInsert);
     await MddbFileTag.batchInsert(this.db, fileTagsToInsert);
