@@ -62,7 +62,7 @@ class MddbFile {
     static async deleteTable(db) {
         await db.schema.dropTableIfExists(this.table);
     }
-    static batchInsert(db, files) {
+    static batchDelIfExistThenInsert(db, files) {
         if (!areUniqueObjectsByKey(files, "_id")) {
             throw new Error("Files must have unique _id");
         }

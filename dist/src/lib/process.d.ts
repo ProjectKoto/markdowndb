@@ -8,4 +8,4 @@ export interface FileInfo extends File {
     links: WikiLink[];
     tasks: Task[];
 }
-export declare function processFile(rootFolder: string, filePath: string, pathToUrlResolver: (filePath: string) => string, filePathsToIndex: string[], computedFields: ((fileInfo: FileInfo, ast: Root) => any)[], config: CustomConfig): Promise<FileInfo[]>;
+export declare function processFile(rootFolder: string, filePath: string, pathToUrlResolver: (filePath: string) => string, computedFields: ((fileInfo: FileInfo, ast: Root) => any)[], config: CustomConfig): AsyncGenerator<FileInfo, void, unknown>;

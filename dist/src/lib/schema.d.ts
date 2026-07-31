@@ -19,17 +19,13 @@ declare class MddbFile {
     static supportedExtensions: string[];
     static defaultProperties: string[];
     _id: string;
-    file_path: string;
-    extension: string;
-    url_path: string | null;
-    filetype: string | null;
     metadata: MetaData | null;
     [key: string]: any;
     constructor(file: any);
     toObject(): File;
     static createTable(db: Knex, properties: string[]): Promise<void>;
     static deleteTable(db: Knex): Promise<void>;
-    static batchInsert(db: Knex, files: File[]): Promise<unknown[]>;
+    static batchDelIfExistThenInsert(db: Knex, files: File[]): Promise<unknown[]>;
 }
 interface Link {
     link_type: "normal" | "embed";

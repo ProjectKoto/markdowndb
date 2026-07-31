@@ -1,13 +1,12 @@
 import path from "path";
 import process from "process";
 import knex from "knex";
-import { MddbFile, MddbTag, MddbLink, MddbFileTag, MddbTask } from "./schema.js";
+import { MddbFile, MddbTag, MddbLink, MddbFileTag, MddbTask, Table } from "./schema.js";
 import { indexFolder, shouldIncludeFile } from "./indexFolder.js";
-import { resetDatabaseTables, mapFileToInsert, mapLinksToInsert, isLinkToDefined, mapFileTagsToInsert, getUniqueValues, getUniqueProperties, mapTasksToInsert, } from "./databaseUtils.js";
+import { resetDatabaseTables, mapFileToInsert, mapLinksToInsert, isLinkToDefined, mapFileTagsToInsert, getUniqueValues, getUniqueProperties, mapTasksToInsert, asyncGenIntoBatches, } from "./databaseUtils.js";
 import fs from "fs";
 import { processFile } from "./process.js";
 import chokidar from "chokidar";
-import { recursiveWalkDir } from "./recursiveWalkDir.js";
 import { loadConfig } from "./loadConfig.js";
 import debounce from 'debounce';
 import replaceAll from 'string.prototype.replaceall';
@@ -64,15 +63,18 @@ export class MarkdownDB {
     ignorePatterns = [], pathToUrlResolver = defaultFilePathToUrl, customConfig, watch = false, configFilePath, }) {
         const config = customConfig || (await loadConfig(configFilePath)) || {};
         const firstIndexTimestamp = Date.now();
-        const fileObjects = await indexFolder(folderPath, pathToUrlResolver, config, ignorePatterns);
-        await this.saveDataToDisk(fileObjects, firstIndexTimestamp);
+        const fileObjectsAsyncGenerator = indexFolder(folderPath, pathToUrlResolver, config, ignorePatterns);
+        const fileObjectsInBatchAsyncGenerator = asyncGenIntoBatches(customConfig?.fileInfoBatchSize ?? 50, fileObjectsAsyncGenerator);
+        for await (const fileObjectsBatch of fileObjectsInBatchAsyncGenerator) {
+            await this.saveDataToDisk(fileObjectsBatch, firstIndexTimestamp);
+        }
         if (watch) {
             const watcher = chokidar.watch(folderPath, {
                 ignoreInitial: true,
                 awaitWriteFinish: true,
                 atomic: true,
             });
-            const filePathsToIndex = await recursiveWalkDir(folderPath);
+            // const filePathsToIndex = xxx async gen recursiveWalkDir(folderPath);
             const computedFields = config.computedFields || [];
             const saveDataFuncToDebounce = () => { this.saveDataToDiskIncr(firstIndexTimestamp); };
             const saveDataFuncDebounced = debounce(saveDataFuncToDebounce, 1000);
@@ -92,53 +94,88 @@ export class MarkdownDB {
                     const relativePath = path.relative(folderPath, filePath);
                     const relativePathForwardSlash = replaceAll(relativePath, '\\', '/');
                     if (event === "unlink") {
-                        for (const f of fileObjects) {
-                            if (f.origin_file_path === relativePathForwardSlash) {
-                                f.is_deleted_by_hoard = true;
-                                this.pendingUpdate[f.asset_raw_path] = f;
-                                // deleted (parent + children) files should have "now" timestamp, not their own modified time
-                                f.update_time_by_hoard = eventTimestamp;
-                            }
+                        const filesToDel = (await this.db(Table.Files)
+                            .where((builder) => {
+                            builder.where('origin_file_path', relativePathForwardSlash);
+                        })
+                            .select('files.*')
+                            .groupBy('_id')).map(f => new MddbFile(f));
+                        for (const f of filesToDel) {
+                            f.is_deleted_by_hoard = true;
+                            this.pendingUpdate[f.asset_raw_path] = f;
+                            // deleted (parent + children) files should have "now" timestamp, not their own modified time
+                            f.update_time_by_hoard = eventTimestamp;
                         }
                         console.log(`File ${filePath} has been removed`);
                         saveDataFuncDebounced();
                         return;
                     }
-                    const fileObjectsOfCurrOrigFile = await processFile(folderPath, filePath, pathToUrlResolver, filePathsToIndex, computedFields, config);
-                    for (let i = 0; i < fileObjects.length; i++) {
-                        let f = fileObjects[i];
-                        // only handle current origin file's parsed file and its children
-                        if (f.origin_file_path !== relativePathForwardSlash) {
-                            continue;
-                        }
-                        f.is_deleted_by_hoard = true;
-                        for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
-                            if (f.asset_raw_path === fileObjectOfCurrOrigFile.asset_raw_path) {
+                    const newParsedFileObjsOfCurrOrig = [];
+                    for await (const f of processFile(folderPath, filePath, pathToUrlResolver, computedFields, config)) {
+                        newParsedFileObjsOfCurrOrig.push(f);
+                    }
+                    const latestFilesOfCurrOrigMap = {};
+                    {
+                        const existingFilesOfSameOriginFile = (await this.db(Table.Files)
+                            .where((builder) => {
+                            // only handle current origin file's parsed file and its children
+                            builder.where('origin_file_path', relativePathForwardSlash);
+                        })
+                            .select('files.*')
+                            .groupBy('_id')).map(f => new MddbFile(f));
+                        existingFilesOfSameOriginFile.forEach(f => {
+                            // will remove is_deleted_by_hoard flag later,
+                            // if it should be prevserved
+                            f.is_deleted_by_hoard = true;
+                        });
+                        existingFilesOfSameOriginFile.forEach(f => {
+                            // most of time it is 1:1, just in case, build it as a list
+                            let fList = latestFilesOfCurrOrigMap[f.asset_raw_path];
+                            if (fList === undefined) {
+                                fList = [];
+                                latestFilesOfCurrOrigMap[f.asset_raw_path] = fList;
+                            }
+                            fList.push(f);
+                        });
+                        // after latestFilesOfCurrOrigMap is built, existingFilesOfSameOriginFile should be disposed.
+                        // latestFilesOfCurrOrigMap should be treated as
+                        // the container of the latest files.
+                    }
+                    for (const newParsedFileObj of newParsedFileObjsOfCurrOrig) {
+                        const existingFileMatchingAssetRawPathList = latestFilesOfCurrOrigMap[newParsedFileObj.asset_raw_path];
+                        if (existingFileMatchingAssetRawPathList) {
+                            for (let i = 0; i < existingFileMatchingAssetRawPathList.length; i++) {
+                                let ef = existingFileMatchingAssetRawPathList[i];
                                 // so that is_deleted_by_hoard is removed after replace
-                                fileObjects[i] = fileObjectOfCurrOrigFile;
-                                f = fileObjectOfCurrOrigFile;
-                                fileObjectOfCurrOrigFile.isAlreadyExist = true;
-                                break;
+                                ef = newParsedFileObj;
+                                existingFileMatchingAssetRawPathList[i] = ef;
+                                newParsedFileObj.isAlreadyExist = true;
                             }
                         }
-                        if (f.is_deleted_by_hoard) {
-                            // deleted part of (parent + children) files should have "now" timestamp, not their own modified time
-                            f.update_time_by_hoard = eventTimestamp;
-                        }
-                        // this correctly handles both delete & update
-                        this.pendingUpdate[fileObjects[i].asset_raw_path] = fileObjects[i];
                     }
-                    for (const fileObjectOfCurrOrigFile of fileObjectsOfCurrOrigFile) {
-                        if (fileObjectOfCurrOrigFile.isAlreadyExist) {
+                    Object.entries(latestFilesOfCurrOrigMap).forEach(([assetRawPath, latestFileList]) => {
+                        if (!latestFileList) {
+                            return;
+                        }
+                        latestFileList.forEach(lf => {
+                            if (lf.is_deleted_by_hoard) {
+                                // deleted part of (parent + children) files should have "now" timestamp, not their own modified time
+                                lf.update_time_by_hoard = eventTimestamp;
+                            }
+                            // this correctly handles both delete & update
+                            this.pendingUpdate[lf.asset_raw_path] = lf;
+                        });
+                    });
+                    for (const newParsedFileObj of newParsedFileObjsOfCurrOrig) {
+                        if (newParsedFileObj.isAlreadyExist) {
                             // 
                         }
                         else {
-                            fileObjects.push(fileObjectOfCurrOrigFile);
-                            this.pendingUpdate[fileObjectOfCurrOrigFile.asset_raw_path] = fileObjectOfCurrOrigFile;
+                            this.pendingUpdate[newParsedFileObj.asset_raw_path] = newParsedFileObj;
                             // new / moved files should have "now" timestamp, not their own modified time
-                            fileObjectOfCurrOrigFile.update_time_by_hoard = eventTimestamp;
+                            newParsedFileObj.update_time_by_hoard = eventTimestamp;
                         }
-                        delete fileObjectOfCurrOrigFile.isAlreadyExist;
+                        delete newParsedFileObj.isAlreadyExist;
                     }
                     console.log(`File ${filePath} has been ${event === "add" ? "added" : "updated"}`);
                     saveDataFuncDebounced();
@@ -178,7 +215,7 @@ export class MarkdownDB {
         const fileTagsToInsert = fileObjects.flatMap(mapFileTagsToInsert);
         const tasksToInsert = fileObjects.flatMap(mapTasksToInsert);
         writeJsonToFile((process.env.PROCENV_HOARD_MARKDOWNDB_FILES_JSON_PATH || ".markdowndb/files.json"), fileObjects);
-        await MddbFile.batchInsert(this.db, filesToInsert);
+        await MddbFile.batchDelIfExistThenInsert(this.db, filesToInsert);
         await MddbTag.batchInsert(this.db, tagsToInsert);
         await MddbFileTag.batchInsert(this.db, fileTagsToInsert);
         await MddbLink.batchInsert(this.db, getUniqueValues(linksToInsert));
@@ -187,8 +224,8 @@ export class MarkdownDB {
     async saveDataToDiskIncr(operateTimestamp) {
         const currPendingUpdate = this.pendingUpdate;
         this.pendingUpdate = {};
-        const filesToInsert = Object.values(currPendingUpdate).map(f => mapFileToInsert(f, operateTimestamp));
-        await MddbFile.batchInsert(this.db, filesToInsert);
+        const filesToDelIfExistThenInsert = Object.values(currPendingUpdate).map(f => mapFileToInsert(f, operateTimestamp));
+        await MddbFile.batchDelIfExistThenInsert(this.db, filesToDelIfExistThenInsert);
     }
     /**
      * Retrieves a file from the database by its ID.

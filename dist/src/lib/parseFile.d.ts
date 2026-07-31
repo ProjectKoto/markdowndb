@@ -15,7 +15,6 @@ export interface ParsingOptions {
     from?: string;
     remarkPlugins?: Array<Plugin>;
     extractors?: LinkExtractors;
-    permalinks?: string[];
 }
 export declare const extractTagsFromBody: (ast: Root) => string[];
 export interface LinkExtractors {

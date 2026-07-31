@@ -1,20 +1,20 @@
 import { processFile } from "./process.js";
 import { recursiveWalkDir } from "./recursiveWalkDir.js";
 import micromatch from "micromatch";
-export async function indexFolder(folderPath, pathToUrlResolver, config, ignorePatterns) {
-    const filePathsToIndex = await recursiveWalkDir(folderPath);
-    const filteredFilePathsToIndex = filePathsToIndex.filter((filePath) => shouldIncludeFile({
-        filePath,
-        ignorePatterns,
-        includeGlob: config.include,
-        excludeGlob: config.exclude,
-    }));
-    const files = [];
+export async function* indexFolder(folderPath, pathToUrlResolver, config, ignorePatterns) {
     const computedFields = config.computedFields || [];
     const schemas = config.schemas;
-    for (const filePath of filteredFilePathsToIndex) {
-        const fileObjects = await processFile(folderPath, filePath, pathToUrlResolver, filePathsToIndex, computedFields, config);
-        for (const fileObject of fileObjects) {
+    for await (const filePath of recursiveWalkDir(folderPath)) {
+        if (!shouldIncludeFile({
+            filePath,
+            ignorePatterns,
+            includeGlob: config.include,
+            excludeGlob: config.exclude,
+        })) {
+            continue;
+        }
+        const currPhysicalFileFileObjectsGenerator = processFile(folderPath, filePath, pathToUrlResolver, computedFields, config);
+        for await (const fileObject of currPhysicalFileFileObjectsGenerator) {
             const urlPath = fileObject?.asset_url_path ?? "";
             // This is temporary.
             // Note: Subject to change pending agreement on the final structure of document types.
@@ -36,10 +36,9 @@ export async function indexFolder(folderPath, pathToUrlResolver, config, ignoreP
                     throw new Error("Validation Failed: Unable to validate files against the specified scheme. Ensure that the file formats and content adhere to the specified scheme.");
                 }
             }
-            files.push(fileObject);
+            yield fileObject;
         }
     }
-    return files;
 }
 export function shouldIncludeFile({ filePath, ignorePatterns, includeGlob, excludeGlob, }) {
     const normalizedFilePath = filePath.replace(/\\/g, "/");

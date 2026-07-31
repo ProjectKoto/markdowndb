@@ -1,1 +1,1 @@
-export declare function recursiveWalkDir(dir: string): Promise<string[]>;
+export declare function recursiveWalkDir(dir: string): AsyncGenerator<string, void, undefined>;

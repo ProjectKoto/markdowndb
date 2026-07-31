@@ -6,19 +6,25 @@ import replaceAll from 'string.prototype.replaceall';
 import { handleDeclaredTags, parseFile } from "./parseFile.js";
 // this file is an extraction of the file info parsing from markdowndb.ts without any sql stuff
 // TODO: add back (as an option) - providing a "root folder" path for resolve
-export async function processFile(rootFolder, filePath, pathToUrlResolver, filePathsToIndex, computedFields, config) {
+export async function* processFile(rootFolder, filePath, pathToUrlResolver, computedFields, config) {
     // Remove rootFolder from filePath
     const relativePath = path.relative(rootFolder, filePath);
     const relativePathForwardSlash = replaceAll(relativePath, '\\', '/');
     // removes path segments for archiving
-    const assetRawPath = relativePathForwardSlash.split('/').filter(x => !(x.length >= 2 && x[0] === '[' && x[x.length - 1] === ']')).join('/');
+    const assetRawPath = relativePathForwardSlash.split('/').filter(x => !(x.length >= 2 && x[0] === '[' && x[x.length - 1] === ']')).map(x => x.replace(/^\[.+\]/, '')).join('/');
     let [isDedicated, assetLocator, extension] = (await config.handleDedicated(assetRawPath));
     // const assetLocatorComponents = assetLocator.split('/');
     // const assetLocatorBasename = assetLocatorComponents[assetLocatorComponents.length - 1];
     // const assetLocatorParent = assetLocatorComponents.slice(0, assetLocatorComponents.length - 1).join('/') + '/';
     // gets key file info if any e.g. extension (file size??)
     const encodedPath = Buffer.from(relativePathForwardSlash, "utf-8").toString();
-    const id = crypto.createHash("sha1").update(encodedPath).digest("hex");
+    const id = crypto.createHash("sha256").update(encodedPath).digest("hex");
+    const isExtensionMarkdown = await config.isExtensionMarkdown(extension);
+    const cloneTidyFileInfoBeforeReturn = async (fileInfo) => {
+        const ret = { ...fileInfo };
+        delete ret._sourceWithoutMatter;
+        return ret;
+    };
     const fileInfo = {
         _id: id,
         // file_path: filePath,
@@ -36,9 +42,9 @@ export async function processFile(rootFolder, filePath, pathToUrlResolver, fileP
         links: [],
         tasks: [],
     };
-    const fileInfoList = [fileInfo];
     // if not a file type we can parse exit here ...
     // if (extension ! in list of supported extensions exit now ...)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const relPathLower = relativePath.toLowerCase();
     // metadata, tags, links
     const stat = await fs.promises.stat(filePath, {
@@ -59,6 +65,30 @@ export async function processFile(rootFolder, filePath, pathToUrlResolver, fileP
             }
             return source;
         };
+        const handleIfMarkdown = async (currFileInfo) => {
+            if (isExtensionMarkdown) {
+                if (!currFileInfo.metadata) {
+                    currFileInfo.metadata = {};
+                }
+                const { ast, links } = parseFile(currFileInfo.metadata, currFileInfo._sourceWithoutMatter, {
+                    from: relativePath,
+                });
+                currFileInfo.referencedTags = currFileInfo.metadata.referencedTags;
+                currFileInfo.links = links;
+                for (let index = 0; index < computedFields.length; index++) {
+                    const customFieldFunction = computedFields[index];
+                    customFieldFunction(currFileInfo, ast);
+                }
+                if (config.markdownExtraHandler) {
+                    await config.markdownExtraHandler(relativePathForwardSlash, getSourceFunc, fileInfo, { ast, metadata: currFileInfo.metadata, links, tags: currFileInfo.metadata.declaredTags });
+                }
+                handleDeclaredTags(currFileInfo.metadata);
+                currFileInfo.declaredTags = currFileInfo.metadata.declaredTags;
+            }
+        };
+        for (const handler of config.otherHandlers ?? []) {
+            await handler(relativePathForwardSlash, getSourceFunc, fileInfo);
+        }
         // if (await config.isHasFrontMatter(relativePathForwardSlash)) {
         if (isDedicated) {
             const source = getSourceFunc();
@@ -91,6 +121,12 @@ export async function processFile(rootFolder, filePath, pathToUrlResolver, fileP
             if (metadata?.tkLocatorBase && typeof metadata?.tkLocatorBase === 'string') {
                 // override
                 const overrideParts = assetLocator.split('/');
+                if (metadata?.tkLocatorBase.startsWith('-^~') && metadata?.tkLocatorBase.length > 3) {
+                    const stripPrefix = metadata?.tkLocatorBase.substring(3);
+                    const originBase = overrideParts[overrideParts.length - 1];
+                    const regex = new RegExp('^' + stripPrefix);
+                    overrideParts[overrideParts.length - 1] = originBase.replace(regex, '');
+                }
                 if (metadata?.tkLocatorBase.startsWith('-^') && metadata?.tkLocatorBase.length > 2) {
                     const stripPrefix = metadata?.tkLocatorBase.substring(2);
                     const originBase = overrideParts[overrideParts.length - 1];
@@ -114,39 +150,16 @@ export async function processFile(rootFolder, filePath, pathToUrlResolver, fileP
             }
             fileInfo.declaredTags = metadata.declaredTags;
             fileInfo.tasks = metadata?.tasks || [];
-            const derivedChildFileInfoList = await config.deriveChildFileInfo(fileInfo, sourceWithoutMatter, metadata);
-            for (const derivedChildFileInfo of derivedChildFileInfoList) {
-                fileInfoList.push(derivedChildFileInfo);
+            await handleIfMarkdown(fileInfo);
+            yield await cloneTidyFileInfoBeforeReturn(fileInfo);
+            const derivedChildFileInfoAsyncGenerator = config.deriveChildFileInfo(fileInfo, sourceWithoutMatter, metadata);
+            for await (const derivedChildFileInfo of derivedChildFileInfoAsyncGenerator) {
+                await handleIfMarkdown(derivedChildFileInfo);
+                yield await cloneTidyFileInfoBeforeReturn(derivedChildFileInfo);
             }
-            if (await config.isExtensionMarkdown(extension)) {
-                for (const currFileInfo of [fileInfo, ...derivedChildFileInfoList]) {
-                    if (!currFileInfo.metadata) {
-                        currFileInfo.metadata = {};
-                    }
-                    const { ast, links } = parseFile(currFileInfo.metadata, currFileInfo._sourceWithoutMatter, {
-                        from: relativePath,
-                        permalinks: filePathsToIndex,
-                    });
-                    currFileInfo.referencedTags = currFileInfo.metadata.referencedTags;
-                    currFileInfo.links = links;
-                    for (let index = 0; index < computedFields.length; index++) {
-                        const customFieldFunction = computedFields[index];
-                        customFieldFunction(currFileInfo, ast);
-                    }
-                    if (config.markdownExtraHandler) {
-                        await config.markdownExtraHandler(relativePathForwardSlash, getSourceFunc, fileInfo, fileInfoList, { ast, metadata: currFileInfo.metadata, links, tags: currFileInfo.metadata.declaredTags });
-                    }
-                    handleDeclaredTags(currFileInfo.metadata);
-                    currFileInfo.declaredTags = currFileInfo.metadata.declaredTags;
-                }
-            }
-        }
-        for (const handler of config.otherHandlers ?? []) {
-            await handler(relativePathForwardSlash, getSourceFunc, fileInfo);
         }
     }
-    fileInfoList.forEach(x => {
-        delete x._sourceWithoutMatter;
-    });
-    return fileInfoList;
+    else {
+        yield await cloneTidyFileInfoBeforeReturn(fileInfo);
+    }
 }

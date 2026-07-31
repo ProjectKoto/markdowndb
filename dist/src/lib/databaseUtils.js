@@ -10,6 +10,7 @@ export async function resetDatabaseTables(db) {
 }
 export function mapFileToInsert(file, updateTime) {
     // const { tags, links, ...rest } = file;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { referencedTags, declaredTags, ...rest } = file;
     // return { ...rest };
     const overrider = {};
@@ -89,4 +90,34 @@ export function mapTasksToInsert(file) {
             scheduled: task.scheduled,
         };
     });
+}
+export function intoBatches(batchSize, origList) {
+    batchSize = Math.floor(batchSize);
+    const result = [...Array(Math.floor((origList.length + batchSize - 1) / batchSize)).keys()].map(i => {
+        return origList.slice(i * batchSize, Math.min(origList.length, (i + 1) * batchSize));
+    });
+    return result;
+}
+export async function runByBatch(batchSize, origList, batchConverter) {
+    const batches = intoBatches(batchSize, origList);
+    const targetList = [];
+    for (const batch of batches) {
+        targetList.push(...(await batchConverter(batch)));
+    }
+    return targetList;
+}
+// answer to How can I consume an iterable in batches (equally sized chunks)? by Ryan Smith
+// https://stackoverflow.com/questions/54369286/how-can-i-consume-an-iterable-in-batches-equally-sized-chunks/66762031#66762031
+export async function* asyncGenIntoBatches(batchSize, iterable) {
+    let items = [];
+    for await (const item of iterable) {
+        items.push(item);
+        if (items.length >= batchSize) {
+            yield items;
+            items = [];
+        }
+    }
+    if (items.length !== 0) {
+        yield items;
+    }
 }

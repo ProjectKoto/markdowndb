@@ -13,3 +13,6 @@ export declare function mapFileTagsToInsert(file: any): {
 export declare function getUniqueValues<T>(inputArray: T[]): T[];
 export declare function getUniqueProperties(objects: any[]): string[];
 export declare function mapTasksToInsert(file: any): any;
+export declare function intoBatches<T>(batchSize: number, origList: T[]): T[][];
+export declare function runByBatch<T, U>(batchSize: number, origList: T[], batchConverter: (a: T[]) => Promise<U[]>): Promise<U[]>;
+export declare function asyncGenIntoBatches<T>(batchSize: number, iterable: AsyncIterableIterator<T>): AsyncGenerator<T[], void, unknown>;

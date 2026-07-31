@@ -1,7 +1,6 @@
 import { Knex } from "knex";
-import { MddbFile, MddbTag, MddbLink } from "./schema.js";
+import { MddbFile, MddbTag, MddbLink, File } from "./schema.js";
 import { CustomConfig } from "./CustomConfig.js";
-import { FileInfo } from "./process.js";
 /**
  * MarkdownDB class for managing a Markdown database.
  */
@@ -9,7 +8,7 @@ export declare class MarkdownDB {
     config: Knex.Config;
     db: Knex;
     pendingUpdate: {
-        [key: string]: FileInfo;
+        [key: string]: File;
     };
     /**
      * Constructs a new MarkdownDB instance.

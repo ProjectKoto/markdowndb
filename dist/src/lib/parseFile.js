@@ -3,7 +3,6 @@ import { unified } from "unified";
 import { selectAll } from "unist-util-select";
 import * as path from "path";
 import gfm from "remark-gfm";
-import remarkWikiLink from "@portaljs/remark-wiki-link";
 export function parseFile(metadata, sourceWithoutMatter, options) {
     const ast = processAST(sourceWithoutMatter, options);
     const referencedTags = extractTagsFromBody(ast);
@@ -35,10 +34,6 @@ export function processAST(source, options) {
         .use(markdown)
         .use([
         gfm,
-        [
-            remarkWikiLink,
-            { pathFormat: "obsidian-short", permalinks: options?.permalinks },
-        ],
         ...(userRemarkPlugins || []),
     ]);
     const ast = processor.parse(source);
