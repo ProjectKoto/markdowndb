@@ -1,3 +1,5 @@
+20260731: removing jest dependencies for unabled to resolve dependency when npm audit fix
+
 # MarkdownDB
 
 [![](https://badgen.net/npm/v/mddb)](https://www.npmjs.com/package/mddb)
