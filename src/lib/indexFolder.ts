@@ -1,37 +1,37 @@
 import { ZodError } from "zod";
 import { CustomConfig } from "./CustomConfig.js";
-import { FileInfo, processFile } from "./process.js";
+import { processFile } from "./process.js";
 import { recursiveWalkDir } from "./recursiveWalkDir.js";
 import micromatch from "micromatch";
 
-export async function indexFolder(
+export async function * indexFolder(
   folderPath: string,
   pathToUrlResolver: (filePath: string) => string,
   config: CustomConfig,
   ignorePatterns?: RegExp[]
 ) {
-  const filePathsToIndex = await recursiveWalkDir(folderPath);
-  const filteredFilePathsToIndex = filePathsToIndex.filter((filePath) =>
-    shouldIncludeFile({
+  const computedFields = config.computedFields || [];
+  const schemas = config.schemas;
+  
+  for await (const filePath of recursiveWalkDir(folderPath)) {
+    if (!shouldIncludeFile({
       filePath,
       ignorePatterns,
       includeGlob: config.include,
       excludeGlob: config.exclude,
-    })
-  );
-  const files: FileInfo[] = [];
-  const computedFields = config.computedFields || [];
-  const schemas = config.schemas;
-  for (const filePath of filteredFilePathsToIndex) {
-    const fileObjects = await processFile(
+    })) {
+      continue;
+    }
+
+    const currPhysicalFileFileObjectsGenerator = processFile(
       folderPath,
       filePath,
       pathToUrlResolver,
-      filePathsToIndex,
       computedFields,
       config,
     );
-    for (const fileObject of fileObjects) {
+
+    for await (const fileObject of currPhysicalFileFileObjectsGenerator) {
       const urlPath = fileObject?.asset_url_path ?? "";
       // This is temporary.
       // Note: Subject to change pending agreement on the final structure of document types.
@@ -63,10 +63,9 @@ export async function indexFolder(
         }
       }
 
-      files.push(fileObject);
+      yield fileObject;
     }
   }
-  return files;
 }
 
 export function shouldIncludeFile({

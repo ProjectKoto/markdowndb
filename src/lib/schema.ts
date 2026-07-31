@@ -53,12 +53,12 @@ class MddbFile {
   ];
 
   _id: string;
-  file_path: string;
-  extension: string;
-  url_path: string | null;
+  // file_path: string;
+  // extension: string;
+  // url_path: string | null;
   // TODO there should be a separate table for filetypes
   // and another one for many-to-many relationship between files and filetypes
-  filetype: string | null;
+  // filetype: string | null;
   metadata: MetaData | null;
   [key: string]: any;
 
@@ -119,7 +119,7 @@ class MddbFile {
     await db.schema.dropTableIfExists(this.table);
   }
 
-  static batchInsert(db: Knex, files: File[]) {
+  static batchDelIfExistThenInsert(db: Knex, files: File[]) {
     if (!areUniqueObjectsByKey(files, "_id")) {
       throw new Error("Files must have unique _id");
     }

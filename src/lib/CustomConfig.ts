@@ -9,12 +9,13 @@ type Schemas = { [index: string]: ZodObject<any> };
 
 export interface CustomConfig {
   computedFields?: ComputedFields;
+  fileInfoBatchSize?: number;
   schemas?: Schemas;
   include?: string[];
   exclude?: string[];
   handleDedicated: (assetRawPath: string) => Promise<[isDedicated: boolean, assetLocator: string, extension: string]>;
-  deriveChildFileInfo: (fileInfo: FileInfo, sourceWithoutMatter: string, metadata: { [key: string]: any }) => Promise<FileInfo[]>;
+  deriveChildFileInfo: (fileInfo: FileInfo, sourceWithoutMatter: string, metadata: { [key: string]: any }) => AsyncGenerator<FileInfo, void, undefined>;
   isExtensionMarkdown: (extension: string) => Promise<boolean>;
-  markdownExtraHandler: ((relativePathForwardSlash: string, getSourceFunc: () => string, fileInfo: FileInfo, fileInfoList: FileInfo[], otherInfo: { ast: Node, metadata: { [key: string]: any }, links: WikiLink[], tags: any[] }) => Promise<void>) | undefined
+  markdownExtraHandler: ((relativePathForwardSlash: string, getSourceFunc: () => string, fileInfo: FileInfo, otherInfo: { ast: Node, metadata: { [key: string]: any }, links: WikiLink[], tags: any[] }) => Promise<void>) | undefined
   otherHandlers: ((relativePathForwardSlash: string, getSourceFunc: () => string, fileInfo: FileInfo) => Promise<void>)[] | undefined
 }

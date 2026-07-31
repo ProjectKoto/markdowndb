@@ -1,10 +1,8 @@
-import matter from "gray-matter";
 import markdown from "remark-parse";
 import { Plugin, unified } from "unified";
 import { selectAll } from "unist-util-select";
 import * as path from "path";
 import gfm from "remark-gfm";
-import remarkWikiLink from "@portaljs/remark-wiki-link";
 import { Root } from "remark-parse/lib";
 import { MetaData, Task } from "./schema";
 
@@ -50,10 +48,6 @@ export function processAST(source: string, options?: ParsingOptions) {
     .use(markdown)
     .use([
       gfm,
-      [
-        remarkWikiLink,
-        { pathFormat: "obsidian-short", permalinks: options?.permalinks },
-      ],
       ...(userRemarkPlugins || []),
     ]);
 
@@ -65,7 +59,6 @@ export interface ParsingOptions {
   from?: string;
   remarkPlugins?: Array<Plugin>; // remark plugins that add custom nodes to the AST
   extractors?: LinkExtractors; // mapping from custom node types (e.g. added by above plugins) to functions that should handle them
-  permalinks?: string[];
 }
 
 export const extractTagsFromBody = (ast: Root) => {

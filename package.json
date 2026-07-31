@@ -45,7 +45,6 @@
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",
   "dependencies": {
-    "@portaljs/remark-wiki-link": "^1.0.4",
     "@types/micromatch": "^4.0.6",
     "chokidar": "^3.5.3",
     "debounce": "^2.2.0",

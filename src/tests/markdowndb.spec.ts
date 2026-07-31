@@ -289,7 +289,7 @@ describe("MarkdownDB - default config", () => {
         },
       ];
       // TODO fix types
-      expect(() => MddbFile.batchInsert(mddb as any, files)).toThrow();
+      expect(() => MddbFile.batchDelIfExistThenInsert(mddb as any, files)).toThrow();
     });
   });
 });

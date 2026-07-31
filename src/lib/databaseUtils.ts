@@ -1,5 +1,5 @@
 import { Knex } from "knex";
-import { MddbFile, MddbTag, MddbTask, MddbLink, MddbFileTag, File } from "./schema.js";
+import { MddbTag, MddbTask, MddbLink, MddbFileTag, File } from "./schema.js";
 import path from "path";
 import { WikiLink } from "./parseFile.js";
 
@@ -14,6 +14,7 @@ export async function resetDatabaseTables(db: Knex) {
 
 export function mapFileToInsert(file: any, updateTime: number) {
   // const { tags, links, ...rest } = file;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { referencedTags, declaredTags, ...rest } = file;
   // return { ...rest };
   const overrider: { [x: string]: any } = {}
@@ -108,3 +109,37 @@ export function mapTasksToInsert(file: any) {
     };
   });
 }
+
+export function intoBatches<T>(batchSize: number, origList: T[]): T[][] {
+  batchSize = Math.floor(batchSize);
+  const result = [...Array(Math.floor((origList.length + batchSize - 1) / batchSize)).keys()].map(i => {
+    return origList.slice(i * batchSize, Math.min(origList.length, (i + 1) * batchSize));
+  });
+  return result;
+}
+
+export async function runByBatch<T, U>(batchSize: number, origList: T[], batchConverter: (a: T[]) => Promise<U[]>): Promise<U[]> {
+  const batches = intoBatches(batchSize, origList);
+  const targetList: U[] = [];
+  for (const batch of batches) {
+    targetList.push(...(await batchConverter(batch)));
+  }
+  return targetList;
+}
+
+// answer to How can I consume an iterable in batches (equally sized chunks)? by Ryan Smith
+// https://stackoverflow.com/questions/54369286/how-can-i-consume-an-iterable-in-batches-equally-sized-chunks/66762031#66762031
+export async function * asyncGenIntoBatches<T>(batchSize: number, iterable: AsyncIterableIterator<T>) {
+  let items: T[] = [];
+  for await (const item of iterable) {
+    items.push(item);
+    if (items.length >= batchSize) {
+      yield items;
+      items = []
+    }
+  }
+  if (items.length !== 0) {
+    yield items;
+  }
+}
+
