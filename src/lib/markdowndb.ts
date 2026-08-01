@@ -96,7 +96,7 @@ export class MarkdownDB {
     watch?: boolean;
     configFilePath?: string;
   }) {
-    const config = customConfig || (await loadConfig(configFilePath)) || {};
+    const config = customConfig || (await loadConfig(configFilePath)) as CustomConfig || {};
     const firstIndexTimestamp = Date.now();
     const fileObjectsAsyncGenerator = indexFolder(
       folderPath,
@@ -111,6 +111,11 @@ export class MarkdownDB {
     for await (const fileObjectsBatch of fileObjectsInBatchAsyncGenerator) {
       await this.saveDataToDisk(fileObjectsBatch, firstIndexTimestamp);
     }
+    if (config !== undefined) {
+      if (config.onInitialIndexingEnd !== undefined) {
+        await config.onInitialIndexingEnd();
+      }
+    }
 
     if (watch) {
       const watcher = chokidar.watch(folderPath, {
@@ -121,8 +126,15 @@ export class MarkdownDB {
 
       // const filePathsToIndex = xxx async gen recursiveWalkDir(folderPath);
       const computedFields = config.computedFields || [];
-      const saveDataFuncToDebounce = () => { this.saveDataToDiskIncr(firstIndexTimestamp); };
-      const saveDataFuncDebounced = debounce(saveDataFuncToDebounce, 1000);
+      const incrIndexFuncToDebounce = async () => {
+        await this.saveDataToDiskIncr(firstIndexTimestamp);
+        if (config !== undefined) {
+          if (config.onIncrementalIndexingEnd !== undefined) {
+            await config.onIncrementalIndexingEnd();
+          }
+        }
+      };
+      const incrIndexFuncDebounced = debounce(incrIndexFuncToDebounce, 1000);
 
       let fileEventHandler = undefined as ((event: string, filePath: string) => Promise<void>) | undefined;
       let fileEventHandlerNoRetry = undefined as ((event: string, filePath: string) => Promise<void>) | undefined;
@@ -160,7 +172,7 @@ export class MarkdownDB {
             }
 
             console.log(`File ${filePath} has been removed`);
-            saveDataFuncDebounced();
+            incrIndexFuncDebounced();
             return;
           }
 
@@ -257,7 +269,7 @@ export class MarkdownDB {
           console.log(
             `File ${filePath} has been ${event === "add" ? "added" : "updated"}`
           );
-          saveDataFuncDebounced();
+          incrIndexFuncDebounced();
         } catch (e) {
           console.error(`mddb handleFileEvent error, shouldScheduleRetryOnErr=${shouldScheduleRetryOnErr}`, e);
           if (shouldScheduleRetryOnErr) {
@@ -312,7 +324,6 @@ export class MarkdownDB {
     this.pendingUpdate = {}
     const filesToDelIfExistThenInsert = Object.values(currPendingUpdate).map(f => mapFileToInsert(f, operateTimestamp));
     await MddbFile.batchDelIfExistThenInsert(this.db, filesToDelIfExistThenInsert);
-    
   }
 
   /**
