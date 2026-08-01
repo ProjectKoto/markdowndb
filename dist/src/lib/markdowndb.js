@@ -68,6 +68,11 @@ export class MarkdownDB {
         for await (const fileObjectsBatch of fileObjectsInBatchAsyncGenerator) {
             await this.saveDataToDisk(fileObjectsBatch, firstIndexTimestamp);
         }
+        if (config !== undefined) {
+            if (config.onInitialIndexingEnd !== undefined) {
+                await config.onInitialIndexingEnd();
+            }
+        }
         if (watch) {
             const watcher = chokidar.watch(folderPath, {
                 ignoreInitial: true,
@@ -76,8 +81,15 @@ export class MarkdownDB {
             });
             // const filePathsToIndex = xxx async gen recursiveWalkDir(folderPath);
             const computedFields = config.computedFields || [];
-            const saveDataFuncToDebounce = () => { this.saveDataToDiskIncr(firstIndexTimestamp); };
-            const saveDataFuncDebounced = debounce(saveDataFuncToDebounce, 1000);
+            const incrIndexFuncToDebounce = async () => {
+                await this.saveDataToDiskIncr(firstIndexTimestamp);
+                if (config !== undefined) {
+                    if (config.onIncrementalIndexingEnd !== undefined) {
+                        await config.onIncrementalIndexingEnd();
+                    }
+                }
+            };
+            const incrIndexFuncDebounced = debounce(incrIndexFuncToDebounce, 1000);
             let fileEventHandler = undefined;
             let fileEventHandlerNoRetry = undefined;
             const fileEventHandlerBuilder = (shouldScheduleRetryOnErr) => async (event, filePath) => {
@@ -107,7 +119,7 @@ export class MarkdownDB {
                             f.update_time_by_hoard = eventTimestamp;
                         }
                         console.log(`File ${filePath} has been removed`);
-                        saveDataFuncDebounced();
+                        incrIndexFuncDebounced();
                         return;
                     }
                     const newParsedFileObjsOfCurrOrig = [];
@@ -178,7 +190,7 @@ export class MarkdownDB {
                         delete newParsedFileObj.isAlreadyExist;
                     }
                     console.log(`File ${filePath} has been ${event === "add" ? "added" : "updated"}`);
-                    saveDataFuncDebounced();
+                    incrIndexFuncDebounced();
                 }
                 catch (e) {
                     console.error(`mddb handleFileEvent error, shouldScheduleRetryOnErr=${shouldScheduleRetryOnErr}`, e);

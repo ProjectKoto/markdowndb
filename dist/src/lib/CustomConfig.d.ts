@@ -27,5 +27,7 @@ export interface CustomConfig {
         tags: any[];
     }) => Promise<void>) | undefined;
     otherHandlers: ((relativePathForwardSlash: string, getSourceFunc: () => string, fileInfo: FileInfo) => Promise<void>)[] | undefined;
+    onInitialIndexingEnd: () => Promise<void> | undefined;
+    onIncrementalIndexingEnd: () => Promise<void> | undefined;
 }
 export {};
