@@ -32,7 +32,7 @@ interface File {
 class MddbFile {
   static table = Table.Files;
   static supportedExtensions = ["md", "mdx"];
-  static defaultProperties = [
+  static allProperties = [
     "_id",
     "asset_raw_path",
     "asset_locator",
@@ -51,6 +51,7 @@ class MddbFile {
     "is_deleted_by_hoard",
     "update_time_by_hoard",
   ];
+  static allPropertiesSet = new Set(MddbFile.allProperties);
 
   _id: string;
   // file_path: string;
@@ -99,18 +100,24 @@ class MddbFile {
       table.bigInteger("publish_time_by_metadata");
       table.boolean("is_deleted_by_hoard");
       table.bigInteger("update_time_by_hoard");
-      properties.forEach((property) => {
-        if (
-          MddbFile.defaultProperties.indexOf(property) === -1 &&
-          ["tags", "referencedTags", "declaredTags", "links"].indexOf(property) === -1
-        ) {
-          table.string(property);
-        }
-      });
+      // 20260802: tk: we deprecate additional custom properties.
+      // "defaultProperties" is renamed to "allProperties".
+      // properties.forEach((property) => {
+      //   if (
+      //     MddbFile.defaultProperties.indexOf(property) === -1 &&
+      //     ["tags", "referencedTags", "declaredTags", "links"].indexOf(property) === -1
+      //   ) {
+      //     table.string(property);
+      //   }
+      // });
     };
     const tableExists = await db.schema.hasTable(this.table);
 
     if (!tableExists) {
+      // 20260802: tk: knex 3.1.0 does not support creating SQLite strict tables.
+      // https://github.com/knex/knex/issues/5467
+      // we could try to use `.toSQL()` (instead of `await` it) as a workaround.
+      // or we can wait for it to be implemented.
       await db.schema.createTable(this.table, creator);
     }
   }
@@ -135,7 +142,7 @@ class MddbFile {
         // If the value is undefined, default it to null
         if (value !== undefined) {
           const shouldStringify =
-            (key === "metadata" || key === "links" || !MddbFile.defaultProperties.includes(key)) &&
+            (key === "metadata" || key === "links" || !MddbFile.allProperties.includes(key)) &&
             typeof value === "object";
           // Stringify all user-defined fields and metadata
           serializedFile[key] = shouldStringify ? JSON.stringify(value) : value;
@@ -155,7 +162,15 @@ class MddbFile {
           const currBatch = serializedFiles.slice(currBatchI, currBatchI + 500);
           // console.log(currBatch);
           await db(Table.Files).delete().whereIn("_id", currBatch.map(f => f._id));
-          return await db.batchInsert(Table.Files, currBatch);
+          return await db.batchInsert(Table.Files, currBatch.map(f => {
+            const fTidy = {} as File;
+            Object.keys(f).forEach(k => {
+              if (MddbFile.allPropertiesSet.has(k)) {
+                fTidy[k] = f[k];
+              }
+            });
+            return fTidy;
+          }));
         })());
       }
       return Promise.all(promises);
