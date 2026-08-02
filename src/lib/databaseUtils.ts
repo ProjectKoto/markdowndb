@@ -24,39 +24,43 @@ export function mapFileToInsert(file: any, updateTime: number) {
   return { ...rest, ...overrider };
 }
 
-export function mapLinksToInsert(filesToInsert: File[], file: any) {
-  return file.links.map((link: WikiLink) => {
-    let to: string | undefined;
-    if (!link.internal) {
-      to = link.toRaw;
-    } else {
-      to = findFileToInsert(filesToInsert, link.to)?._id;
-    }
-    return {
-      from: file._id,
-      to: to,
-      link_type: link.embed ? "embed" : "normal",
-    };
-  });
-}
+// export function mapLinksToInsert(filesToInsert: File[], file: any) {
+//   return file.links.map((link: WikiLink) => {
+//     let to: string | undefined;
+//     if (!link.internal) {
+//       to = link.toRaw;
+//     } else {
+//       to = findFileToInsert(filesToInsert, link.to)?._id;
+//     }
+//     return {
+//       from: file._id,
+//       to: to,
+//       link_type: link.embed ? "embed" : "normal",
+//     };
+//   });
+// }
 
-function findFileToInsert(filesToInsert: File[], filePath: string) {
-  const filePathWithoutExt = path.join(
-    path.dirname(filePath),
-    path.basename(filePath, path.extname(filePath))
-  );
+// function findFileToInsert(filesToInsert: File[], filePath: string) {
+//   const filePathWithoutExt = path.join(
+//     path.dirname(filePath),
+//     path.basename(filePath, path.extname(filePath))
+//   );
 
-  return filesToInsert.find(({ asset_url_path }) => {
-    const normalizedFile = path.normalize(asset_url_path || "");
-    return normalizedFile === filePathWithoutExt;
-  });
-}
+//   // 20260802: tk: no longer works, file no longer has asset_url_path field
+//   return filesToInsert.find(({ asset_url_path }) => {
+//     const normalizedFile = path.normalize(asset_url_path || "");
+//     return normalizedFile === filePathWithoutExt;
+//   });
+// }
 
-export function isLinkToDefined(link: any) {
-  return link.to !== undefined;
-}
+// export function isLinkToDefined(link: any) {
+//   return link.to !== undefined;
+// }
 
 export function mapFileTagsToInsert(file: any) {
+  if (!(file.referencedTags && file.declaredTags)) {
+    return [];
+  }
   const refSet = new Set(file.referencedTags)
   const declSet = new Set(file.declaredTags)
   return [...file.referencedTags, ...file.declaredTags].map((tag: any) => ({
@@ -93,22 +97,22 @@ export function getUniqueProperties(objects: any[]): string[] {
   return uniqueProperties;
 }
 
-export function mapTasksToInsert(file: any) {
-  return file.tasks.map((task: any) => {
-    return {
-      file: file._id,
-      description: task.description,
-      checked: task.checked,
-      metadata: JSON.stringify(task.metadata),
-      created: task.created,
-      due: task.due,
-      completion: task.completion,
-      start: task.start,
-      list: task.list,
-      scheduled: task.scheduled,
-    };
-  });
-}
+// export function mapTasksToInsert(file: any) {
+//   return file.tasks.map((task: any) => {
+//     return {
+//       file: file._id,
+//       description: task.description,
+//       checked: task.checked,
+//       metadata: JSON.stringify(task.metadata),
+//       created: task.created,
+//       due: task.due,
+//       completion: task.completion,
+//       start: task.start,
+//       list: task.list,
+//       scheduled: task.scheduled,
+//     };
+//   });
+// }
 
 export function intoBatches<T>(batchSize: number, origList: T[]): T[][] {
   batchSize = Math.floor(batchSize);

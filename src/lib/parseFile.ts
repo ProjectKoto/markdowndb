@@ -14,10 +14,16 @@ export function parseFile(metadata: { [key: string]: any }, sourceWithoutMatter:
   metadata.referencedTags = metadata.referencedTags ? [...metadata.referencedTags, ...referencedTags] : referencedTags;
 
   // Links
-  const links = extractWikiLinks(ast, options);
+  // 20260802: tk: we drop links parsing; current mddb internal link parsing
+  // doesn't respect tk path schema (backstage, guarded etc)
+  // and tk doens't use external link table much.
+  // const links = extractWikiLinks(ast, options);
+  const links = [];
   metadata.referencedTags = Array.from(new Set(metadata.referencedTags));
 
-  const tasks = extractTasks(ast, metadata);
+  // 20260802: tk: we drop tasks parsing; not actively used
+  // const tasks = extractTasks(ast, metadata);
+  const tasks = [];
   metadata.tasks = tasks;
 
   return {
@@ -116,119 +122,119 @@ export interface WikiLink {
   internal: boolean; // default true (external means http etc - not inside the contentbase)
 }
 
-export const extractWikiLinks = (ast: Root, options?: ParsingOptions) => {
-  let wikiLinks: WikiLink[] = [];
-  const from = options?.from || "";
-  const userExtractors: LinkExtractors = options?.extractors || {};
-  const directory = path.dirname(from);
+// export const extractWikiLinks = (ast: Root, options?: ParsingOptions) => {
+//   let wikiLinks: WikiLink[] = [];
+//   const from = options?.from || "";
+//   const userExtractors: LinkExtractors = options?.extractors || {};
+//   const directory = path.dirname(from);
 
-  const extractors: LinkExtractors = {
-    link: (node: any) => {
-      const to = !node.url.startsWith("http")
-        ? node.url.startsWith("/")
-          ? node.url.slice(1)
-          : path.posix.join(directory, node.url)
-        : node.url;
-      return {
-        from: from,
-        to: to,
-        toRaw: node.url,
-        text: node.children?.[0]?.value || "",
-        embed: false,
-        internal: !node.url.startsWith("http"),
-      };
-    },
-    image: (node: any) => ({
-      from: from,
-      to: node.url.startsWith("/")
-        ? node.url.slice(1)
-        : path.posix.join(directory, node.url),
-      toRaw: node.url,
-      text: node.alt || "",
-      embed: true,
-      internal: !node.url.startsWith("http"),
-    }),
-    wikiLink: (node) => {
-      const linkType = node.data.isEmbed ? "embed" : "normal";
-      let linkSrc = "";
-      let text = "";
+//   const extractors: LinkExtractors = {
+//     link: (node: any) => {
+//       const to = !node.url.startsWith("http")
+//         ? node.url.startsWith("/")
+//           ? node.url.slice(1)
+//           : path.posix.join(directory, node.url)
+//         : node.url;
+//       return {
+//         from: from,
+//         to: to,
+//         toRaw: node.url,
+//         text: node.children?.[0]?.value || "",
+//         embed: false,
+//         internal: !node.url.startsWith("http"),
+//       };
+//     },
+//     image: (node: any) => ({
+//       from: from,
+//       to: node.url.startsWith("/")
+//         ? node.url.slice(1)
+//         : path.posix.join(directory, node.url),
+//       toRaw: node.url,
+//       text: node.alt || "",
+//       embed: true,
+//       internal: !node.url.startsWith("http"),
+//     }),
+//     wikiLink: (node) => {
+//       const linkType = node.data.isEmbed ? "embed" : "normal";
+//       let linkSrc = "";
+//       let text = "";
 
-      if (node.data.hName === "img" || node.data.hName === "iframe") {
-        linkSrc = node.data.hProperties.src;
-        text = node.children?.[0]?.value || "";
-      } else if (node.data.hName === "a") {
-        linkSrc = node.data.hProperties.href;
-        text = node.children?.[0]?.value || "";
-      } else {
-        linkSrc = node.data.permalink;
-        text = node.children?.[0]?.value || "";
-      }
-      const to = !linkSrc.startsWith("http")
-        ? linkSrc.startsWith("/")
-          ? linkSrc.slice(1)
-          : path.posix.join(directory, linkSrc)
-        : linkSrc;
+//       if (node.data.hName === "img" || node.data.hName === "iframe") {
+//         linkSrc = node.data.hProperties.src;
+//         text = node.children?.[0]?.value || "";
+//       } else if (node.data.hName === "a") {
+//         linkSrc = node.data.hProperties.href;
+//         text = node.children?.[0]?.value || "";
+//       } else {
+//         linkSrc = node.data.permalink;
+//         text = node.children?.[0]?.value || "";
+//       }
+//       const to = !linkSrc.startsWith("http")
+//         ? linkSrc.startsWith("/")
+//           ? linkSrc.slice(1)
+//           : path.posix.join(directory, linkSrc)
+//         : linkSrc;
 
-      return {
-        from: from,
-        to: to,
-        toRaw: linkSrc,
-        text,
-        embed: linkType === "embed",
-        internal: !linkSrc.startsWith("http"),
-      };
-    },
-    ...userExtractors,
-  };
+//       return {
+//         from: from,
+//         to: to,
+//         toRaw: linkSrc,
+//         text,
+//         embed: linkType === "embed",
+//         internal: !linkSrc.startsWith("http"),
+//       };
+//     },
+//     ...userExtractors,
+//   };
 
-  Object.entries(extractors).forEach(([test, extractor]) => {
-    const nodes = selectAll(test, ast);
-    const extractedWikiLinks: WikiLink[] = nodes.map((node) => extractor(node));
-    wikiLinks = wikiLinks.concat(extractedWikiLinks);
-  });
+//   Object.entries(extractors).forEach(([test, extractor]) => {
+//     const nodes = selectAll(test, ast);
+//     const extractedWikiLinks: WikiLink[] = nodes.map((node) => extractor(node));
+//     wikiLinks = wikiLinks.concat(extractedWikiLinks);
+//   });
 
-  // const uniqueLinks = [...new Set(allLinks)];
-  return wikiLinks;
-};
+//   // const uniqueLinks = [...new Set(allLinks)];
+//   return wikiLinks;
+// };
 
-export const extractTasks = (ast: Root, metadata: { [key: string]: any }) => {
-  const nodes = selectAll("*", ast);
-  const tasks: Task[] = [];
-  const isKanban = metadata["kanban-list"] === "board";
-  let list: string | null = null;
-  nodes.map((node: any) => {
-    if (node.type === "listItem") {
-      const description = recursivelyExtractText(node).trim();
-      const metadata = extractAllTaskMetadata(description);
-      const checked = node.checked !== null && node.checked !== undefined ? node.checked : null;
-      const created = metadata.created !== null && metadata.created !== undefined ? metadata.created : null;
-      const due = metadata.due !== null && metadata.due !== undefined ? metadata.due : null;
-      const completion = metadata.completion !== null && metadata.completion !== undefined ? metadata.completion : null;
-      const scheduled = metadata.scheduled !== null && metadata.scheduled !== undefined ? metadata.scheduled : null;
-      const start = metadata.start !== null && metadata.start !== undefined ? metadata.start : null;
+// export const extractTasks = (ast: Root, metadata: { [key: string]: any }) => {
+//   const nodes = selectAll("*", ast);
+//   const tasks: Task[] = [];
+//   const isKanban = metadata["kanban-list"] === "board";
+//   let list: string | null = null;
+//   nodes.map((node: any) => {
+//     if (node.type === "listItem") {
+//       const description = recursivelyExtractText(node).trim();
+//       const metadata = extractAllTaskMetadata(description);
+//       const checked = node.checked !== null && node.checked !== undefined ? node.checked : null;
+//       const created = metadata.created !== null && metadata.created !== undefined ? metadata.created : null;
+//       const due = metadata.due !== null && metadata.due !== undefined ? metadata.due : null;
+//       const completion = metadata.completion !== null && metadata.completion !== undefined ? metadata.completion : null;
+//       const scheduled = metadata.scheduled !== null && metadata.scheduled !== undefined ? metadata.scheduled : null;
+//       const start = metadata.start !== null && metadata.start !== undefined ? metadata.start : null;
 
-      if (checked !== null) {
-        tasks.push({
-          description,
-          checked,
-          created,
-          due,
-          completion,
-          scheduled,
-          start,
-          list,
-          metadata: metadata,
-        });
-      }
-    } else if (isKanban && node.type === "heading") {
-      if (node.depth == 2) {
-        list = node.children[0]?.value || null;
-      }
-    }
-  });
+//       if (checked !== null) {
+//         tasks.push({
+//           description,
+//           checked,
+//           created,
+//           due,
+//           completion,
+//           scheduled,
+//           start,
+//           list,
+//           metadata: metadata,
+//         });
+//       }
+//     } else if (isKanban && node.type === "heading") {
+//       if (node.depth == 2) {
+//         list = node.children[0]?.value || null;
+//       }
+//     }
+//   });
 
-  return tasks;
-};
+//   return tasks;
+// };
 
 function recursivelyExtractText(node: any) {
   if (node.value) {
