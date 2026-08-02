@@ -293,7 +293,7 @@ export class MarkdownDB {
   private async resetDataOnDiskForFullWrite() {
     await resetDatabaseTables(this.db);
     // const properties = getUniqueProperties(fileObjects);
-    MddbFile.deleteTable(this.db);
+    await MddbFile.deleteTable(this.db);
     await MddbFile.createTable(this.db, []);
   }
 
