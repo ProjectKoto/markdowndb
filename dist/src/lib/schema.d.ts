@@ -17,7 +17,8 @@ interface File {
 declare class MddbFile {
     static table: Table;
     static supportedExtensions: string[];
-    static defaultProperties: string[];
+    static allProperties: string[];
+    static allPropertiesSet: Set<string>;
     _id: string;
     metadata: MetaData | null;
     [key: string]: any;
