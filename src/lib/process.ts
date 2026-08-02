@@ -181,14 +181,15 @@ export async function * processFile(
       fileInfo.declaredTags = metadata.declaredTags;
       fileInfo.tasks = metadata?.tasks || [];
 
-      await handleIfMarkdown(fileInfo);
-      yield await cloneTidyFileInfoBeforeReturn(fileInfo);
-      
+      // must call before first yield - it may change fileInfo
       const derivedChildFileInfoAsyncGenerator = config.deriveChildFileInfo(
         fileInfo,
         sourceWithoutMatter,
         metadata,
       );
+
+      await handleIfMarkdown(fileInfo);
+      yield await cloneTidyFileInfoBeforeReturn(fileInfo);
 
       for await (const derivedChildFileInfo of derivedChildFileInfoAsyncGenerator) {
         await handleIfMarkdown(derivedChildFileInfo);
