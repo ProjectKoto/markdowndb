@@ -1,9 +1,6 @@
 import { Knex } from "knex";
-import { File } from "./schema.js";
 export declare function resetDatabaseTables(db: Knex): Promise<void>;
 export declare function mapFileToInsert(file: any, updateTime: number): any;
-export declare function mapLinksToInsert(filesToInsert: File[], file: any): any;
-export declare function isLinkToDefined(link: any): boolean;
 export declare function mapFileTagsToInsert(file: any): {
     file: any;
     tag: string;
@@ -12,7 +9,6 @@ export declare function mapFileTagsToInsert(file: any): {
 }[];
 export declare function getUniqueValues<T>(inputArray: T[]): T[];
 export declare function getUniqueProperties(objects: any[]): string[];
-export declare function mapTasksToInsert(file: any): any;
 export declare function intoBatches<T>(batchSize: number, origList: T[]): T[][];
 export declare function runByBatch<T, U>(batchSize: number, origList: T[], batchConverter: (a: T[]) => Promise<U[]>): Promise<U[]>;
 export declare function asyncGenIntoBatches<T>(batchSize: number, iterable: AsyncIterableIterator<T>): AsyncGenerator<T[], void, unknown>;

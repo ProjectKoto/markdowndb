@@ -1,5 +1,4 @@
 import { MddbTag, MddbTask, MddbLink, MddbFileTag } from "./schema.js";
-import path from "path";
 export async function resetDatabaseTables(db) {
     const tableNames = [MddbTag, MddbFileTag, MddbLink, MddbTask];
     // Drop and Create tables
@@ -19,33 +18,39 @@ export function mapFileToInsert(file, updateTime) {
     }
     return { ...rest, ...overrider };
 }
-export function mapLinksToInsert(filesToInsert, file) {
-    return file.links.map((link) => {
-        let to;
-        if (!link.internal) {
-            to = link.toRaw;
-        }
-        else {
-            to = findFileToInsert(filesToInsert, link.to)?._id;
-        }
-        return {
-            from: file._id,
-            to: to,
-            link_type: link.embed ? "embed" : "normal",
-        };
-    });
-}
-function findFileToInsert(filesToInsert, filePath) {
-    const filePathWithoutExt = path.join(path.dirname(filePath), path.basename(filePath, path.extname(filePath)));
-    return filesToInsert.find(({ asset_url_path }) => {
-        const normalizedFile = path.normalize(asset_url_path || "");
-        return normalizedFile === filePathWithoutExt;
-    });
-}
-export function isLinkToDefined(link) {
-    return link.to !== undefined;
-}
+// export function mapLinksToInsert(filesToInsert: File[], file: any) {
+//   return file.links.map((link: WikiLink) => {
+//     let to: string | undefined;
+//     if (!link.internal) {
+//       to = link.toRaw;
+//     } else {
+//       to = findFileToInsert(filesToInsert, link.to)?._id;
+//     }
+//     return {
+//       from: file._id,
+//       to: to,
+//       link_type: link.embed ? "embed" : "normal",
+//     };
+//   });
+// }
+// function findFileToInsert(filesToInsert: File[], filePath: string) {
+//   const filePathWithoutExt = path.join(
+//     path.dirname(filePath),
+//     path.basename(filePath, path.extname(filePath))
+//   );
+//   // 20260802: tk: no longer works, file no longer has asset_url_path field
+//   return filesToInsert.find(({ asset_url_path }) => {
+//     const normalizedFile = path.normalize(asset_url_path || "");
+//     return normalizedFile === filePathWithoutExt;
+//   });
+// }
+// export function isLinkToDefined(link: any) {
+//   return link.to !== undefined;
+// }
 export function mapFileTagsToInsert(file) {
+    if (!(file.referencedTags && file.declaredTags)) {
+        return [];
+    }
     const refSet = new Set(file.referencedTags);
     const declSet = new Set(file.declaredTags);
     return [...file.referencedTags, ...file.declaredTags].map((tag) => ({
@@ -75,22 +80,22 @@ export function getUniqueProperties(objects) {
     }
     return uniqueProperties;
 }
-export function mapTasksToInsert(file) {
-    return file.tasks.map((task) => {
-        return {
-            file: file._id,
-            description: task.description,
-            checked: task.checked,
-            metadata: JSON.stringify(task.metadata),
-            created: task.created,
-            due: task.due,
-            completion: task.completion,
-            start: task.start,
-            list: task.list,
-            scheduled: task.scheduled,
-        };
-    });
-}
+// export function mapTasksToInsert(file: any) {
+//   return file.tasks.map((task: any) => {
+//     return {
+//       file: file._id,
+//       description: task.description,
+//       checked: task.checked,
+//       metadata: JSON.stringify(task.metadata),
+//       created: task.created,
+//       due: task.due,
+//       completion: task.completion,
+//       start: task.start,
+//       list: task.list,
+//       scheduled: task.scheduled,
+//     };
+//   });
+// }
 export function intoBatches(batchSize, origList) {
     batchSize = Math.floor(batchSize);
     const result = [...Array(Math.floor((origList.length + batchSize - 1) / batchSize)).keys()].map(i => {

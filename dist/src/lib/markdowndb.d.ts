@@ -36,6 +36,7 @@ export declare class MarkdownDB {
         watch?: boolean;
         configFilePath?: string;
     }): Promise<void>;
+    private resetDataOnDiskForFullWrite;
     private saveDataToDisk;
     saveDataToDiskIncr(operateTimestamp: number): Promise<void>;
     /**

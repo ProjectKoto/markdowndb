@@ -53,7 +53,7 @@ declare class MddbTag {
     toObject(): Tag;
     static createTable(db: Knex): Promise<void>;
     static deleteTable(db: Knex): Promise<void>;
-    static batchInsert(db: Knex, tags: Tag[]): Promise<unknown[]>;
+    static batchDelIfExistThenInsert(db: Knex, tags: Tag[]): Promise<void>;
 }
 interface FileTag {
     tag: string;
@@ -70,7 +70,7 @@ declare class MddbFileTag {
     constructor(fileTag: any);
     static createTable(db: Knex): Promise<void>;
     static deleteTable(db: Knex): Promise<void>;
-    static batchInsert(db: Knex, fileTags: FileTag[]): Promise<unknown[]>;
+    static batchDelIfExistThenInsert(db: Knex, fileTags: FileTag[]): Promise<void>;
 }
 interface Task {
     description: string;

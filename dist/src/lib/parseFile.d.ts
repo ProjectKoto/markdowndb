@@ -1,11 +1,11 @@
 import { Plugin } from "unified";
 import { Root } from "remark-parse/lib";
-import { MetaData, Task } from "./schema";
+import { MetaData } from "./schema";
 export declare function parseFile(metadata: {
     [key: string]: any;
 }, sourceWithoutMatter: string, options?: ParsingOptions): {
     ast: import("mdast").Root;
-    links: WikiLink[];
+    links: never[];
 };
 export declare function handleDeclaredTags(metadata: {
     [key: string]: any;
@@ -28,8 +28,4 @@ export interface WikiLink {
     embed: boolean;
     internal: boolean;
 }
-export declare const extractWikiLinks: (ast: Root, options?: ParsingOptions) => WikiLink[];
-export declare const extractTasks: (ast: Root, metadata: {
-    [key: string]: any;
-}) => Task[];
 export declare function extractAllTaskMetadata(description: string): MetaData;

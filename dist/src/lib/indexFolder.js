@@ -15,27 +15,8 @@ export async function* indexFolder(folderPath, pathToUrlResolver, config, ignore
         }
         const currPhysicalFileFileObjectsGenerator = processFile(folderPath, filePath, pathToUrlResolver, computedFields, config);
         for await (const fileObject of currPhysicalFileFileObjectsGenerator) {
-            const urlPath = fileObject?.asset_url_path ?? "";
-            // This is temporary.
-            // Note: Subject to change pending agreement on the final structure of document types.
-            const flattenedFileObject = {
-                ...fileObject,
-                ...fileObject.metadata,
-                referencedTags: fileObject.referencedTags,
-                declaredTags: fileObject.declaredTags, // Don't override the tags
-            };
-            const documentType = urlPath.split("/")[0];
-            if (schemas && schemas[documentType]) {
-                const result = schemas[documentType].safeParse(flattenedFileObject);
-                if (!result.success) {
-                    const error = result.error;
-                    error.errors.forEach((err) => {
-                        const errorMessage = `Error: In ${fileObject.asset_raw_path} / ${fileObject.origin_file_path} for the ${documentType} schema. \n    In "${err.path.join(",")}" field: ${err.message}`;
-                        console.error(errorMessage);
-                    });
-                    throw new Error("Validation Failed: Unable to validate files against the specified scheme. Ensure that the file formats and content adhere to the specified scheme.");
-                }
-            }
+            // 20260802: tk: schemas verification is dropped because it relies on
+            // first path component of file path to decide its type.
             yield fileObject;
         }
     }

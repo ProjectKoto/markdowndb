@@ -1,9 +1,8 @@
 import path from "path";
-import process from "process";
 import knex from "knex";
-import { MddbFile, MddbTag, MddbLink, MddbFileTag, MddbTask, Table } from "./schema.js";
+import { MddbFile, MddbTag, MddbLink, MddbFileTag, Table } from "./schema.js";
 import { indexFolder, shouldIncludeFile } from "./indexFolder.js";
-import { resetDatabaseTables, mapFileToInsert, mapLinksToInsert, isLinkToDefined, mapFileTagsToInsert, getUniqueValues, getUniqueProperties, mapTasksToInsert, asyncGenIntoBatches, } from "./databaseUtils.js";
+import { resetDatabaseTables, mapFileToInsert, mapFileTagsToInsert, getUniqueValues, asyncGenIntoBatches, } from "./databaseUtils.js";
 import fs from "fs";
 import { processFile } from "./process.js";
 import chokidar from "chokidar";
@@ -65,6 +64,7 @@ export class MarkdownDB {
         const firstIndexTimestamp = Date.now();
         const fileObjectsAsyncGenerator = indexFolder(folderPath, pathToUrlResolver, config, ignorePatterns);
         const fileObjectsInBatchAsyncGenerator = asyncGenIntoBatches(customConfig?.fileInfoBatchSize ?? 50, fileObjectsAsyncGenerator);
+        await this.resetDataOnDiskForFullWrite();
         for await (const fileObjectsBatch of fileObjectsInBatchAsyncGenerator) {
             await this.saveDataToDisk(fileObjectsBatch, firstIndexTimestamp);
         }
@@ -211,33 +211,42 @@ export class MarkdownDB {
                 .on("error", (error) => console.error(`Watcher error: ${error}`));
         }
     }
-    async saveDataToDisk(fileObjects, operateTimestamp) {
+    async resetDataOnDiskForFullWrite() {
         await resetDatabaseTables(this.db);
-        const properties = getUniqueProperties(fileObjects);
+        // const properties = getUniqueProperties(fileObjects);
         MddbFile.deleteTable(this.db);
-        await MddbFile.createTable(this.db, properties);
-        const filesToInsert = fileObjects.map(f => mapFileToInsert(f, operateTimestamp));
-        const uniqueTags = getUniqueValues(fileObjects.flatMap((file) => [...file.referencedTags, ...file.declaredTags]));
-        const tagsToInsert = uniqueTags.map((tag) => ({ name: tag }));
-        const linksToInsert = fileObjects
-            .flatMap((fileObject) => {
-            return mapLinksToInsert(filesToInsert, fileObject);
-        })
-            .filter(isLinkToDefined);
-        const fileTagsToInsert = fileObjects.flatMap(mapFileTagsToInsert);
-        const tasksToInsert = fileObjects.flatMap(mapTasksToInsert);
-        writeJsonToFile((process.env.PROCENV_HOARD_MARKDOWNDB_FILES_JSON_PATH || ".markdowndb/files.json"), fileObjects);
-        await MddbFile.batchDelIfExistThenInsert(this.db, filesToInsert);
-        await MddbTag.batchInsert(this.db, tagsToInsert);
-        await MddbFileTag.batchInsert(this.db, fileTagsToInsert);
-        await MddbLink.batchInsert(this.db, getUniqueValues(linksToInsert));
-        await MddbTask.batchInsert(this.db, tasksToInsert);
+        await MddbFile.createTable(this.db, []);
+    }
+    async saveDataToDisk(fileObjects, operateTimestamp) {
+        const filesToDelThenInsert = fileObjects.map(f => mapFileToInsert(f, operateTimestamp));
+        const uniqueTags = getUniqueValues(fileObjects.flatMap((file) => {
+            if (file.referencedTags && file.declaredTags) {
+                return [...file.referencedTags, ...file.declaredTags];
+            }
+            else {
+                return [];
+            }
+        }));
+        const tagsToDelThenInsert = uniqueTags.map((tag) => ({ name: tag }));
+        // const linksToDelThenInsert = fileObjects
+        //   .flatMap((fileObject) => {
+        //     return mapLinksToInsert(filesToInsert, fileObject);
+        //   })
+        //   .filter(isLinkToDefined);
+        const fileTagsToDelThenInsert = fileObjects.flatMap(mapFileTagsToInsert);
+        // const tasksToDelThenInsert = fileObjects.flatMap(mapTasksToInsert);
+        // 20260802: tk: 
+        // writeJsonToFile((process.env.PROCENV_HOARD_MARKDOWNDB_FILES_JSON_PATH || ".markdowndb/files.json"), fileObjects);
+        await MddbFile.batchDelIfExistThenInsert(this.db, filesToDelThenInsert);
+        await MddbTag.batchDelIfExistThenInsert(this.db, tagsToDelThenInsert);
+        await MddbFileTag.batchDelIfExistThenInsert(this.db, fileTagsToDelThenInsert);
+        // await MddbLink.batchInsert(this.db, getUniqueValues(linksToInsert));
+        // await MddbTask.batchInsert(this.db, tasksToInsert);
     }
     async saveDataToDiskIncr(operateTimestamp) {
         const currPendingUpdate = this.pendingUpdate;
         this.pendingUpdate = {};
-        const filesToDelIfExistThenInsert = Object.values(currPendingUpdate).map(f => mapFileToInsert(f, operateTimestamp));
-        await MddbFile.batchDelIfExistThenInsert(this.db, filesToDelIfExistThenInsert);
+        await this.saveDataToDisk(Object.values(currPendingUpdate), operateTimestamp);
     }
     /**
      * Retrieves a file from the database by its ID.

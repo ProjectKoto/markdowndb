@@ -194,19 +194,29 @@ class MddbTag {
     static async deleteTable(db) {
         await db.schema.dropTableIfExists(this.table);
     }
-    static batchInsert(db, tags) {
+    static async batchDelIfExistThenInsert(db, tags) {
         if (!areUniqueObjectsByKey(tags, "name")) {
             throw new Error("Tags must have unique name");
         }
         if (tags.length >= 500) {
-            const promises = [];
-            for (let i = 0; i < tags.length; i += 500) {
-                promises.push(db.batchInsert(Table.Tags, tags.slice(i, i + 500)));
+            {
+                const promises = [];
+                for (let i = 0; i < tags.length; i += 500) {
+                    promises.push(db(Table.Tags).delete().whereIn("name", tags.slice(i, i + 500).map(f => f.name)));
+                }
+                await Promise.all(promises);
             }
-            return Promise.all(promises);
+            {
+                const promises = [];
+                for (let i = 0; i < tags.length; i += 500) {
+                    promises.push(db.batchInsert(Table.Tags, tags.slice(i, i + 500)));
+                }
+                await Promise.all(promises);
+            }
         }
         else {
-            return db.batchInsert(Table.Tags, tags);
+            await db(Table.Tags).delete().whereIn("name", tags.map(f => f.name));
+            await db.batchInsert(Table.Tags, tags);
         }
     }
 }
@@ -236,16 +246,26 @@ class MddbFileTag {
     static async deleteTable(db) {
         await db.schema.dropTableIfExists(this.table);
     }
-    static batchInsert(db, fileTags) {
+    static async batchDelIfExistThenInsert(db, fileTags) {
         if (fileTags.length >= 500) {
-            const promises = [];
-            for (let i = 0; i < fileTags.length; i += 500) {
-                promises.push(db.batchInsert(Table.FileTags, fileTags.slice(i, i + 500)));
+            {
+                const promises = [];
+                for (let i = 0; i < fileTags.length; i += 500) {
+                    promises.push(db(Table.FileTags).delete().whereIn("file", fileTags.slice(i, i + 500).map(f => f.file)));
+                }
+                await Promise.all(promises);
             }
-            return Promise.all(promises);
+            {
+                const promises = [];
+                for (let i = 0; i < fileTags.length; i += 500) {
+                    promises.push(db.batchInsert(Table.FileTags, fileTags.slice(i, i + 500)));
+                }
+                await Promise.all(promises);
+            }
         }
         else {
-            return db.batchInsert(Table.FileTags, fileTags);
+            await db(Table.FileTags).delete().whereIn("file", fileTags.map(f => f.file));
+            await db.batchInsert(Table.FileTags, fileTags);
         }
     }
 }
