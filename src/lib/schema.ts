@@ -130,9 +130,11 @@ class MddbFile {
     if (!areUniqueObjectsByKey(files, "_id")) {
       throw new Error("Files must have unique _id");
     }
-    if (!areUniqueObjectsByKey(files, "asset_raw_path")) {
-      throw new Error("Files must have unique asset_raw_path");
-    }
+
+    // necessary?
+    // if (!areUniqueObjectsByKey(files, "asset_raw_path")) {
+    //   throw new Error("Files must have unique asset_raw_path");
+    // }
 
     const serializedFiles = files.map((file) => {
       const serializedFile: any = {};
