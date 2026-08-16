@@ -17,6 +17,7 @@ export interface CustomConfig {
   deriveChildFileInfo: (fileInfo: FileInfo, sourceWithoutMatter: string, metadata: { [key: string]: any }) => AsyncGenerator<FileInfo, void, undefined>;
   isExtensionMarkdown: (extension: string) => Promise<boolean>;
   markdownExtraHandler: ((relativePathForwardSlash: string, getSourceFunc: () => string, fileInfo: FileInfo, otherInfo: { ast: Node, metadata: { [key: string]: any }, links: WikiLink[], tags: any[] }) => Promise<void>) | undefined
+  dedicatedExtraHandler: ((relativePathForwardSlash: string, getSourceFunc: () => string, fileInfo: FileInfo, otherInfo: { metadata: { [key: string]: any }, tags: any[] }) => Promise<void>) | undefined
   otherHandlers: ((relativePathForwardSlash: string, getSourceFunc: () => string, fileInfo: FileInfo) => Promise<void>)[] | undefined
   onInitialIndexingEnd: () => Promise<void> | undefined
   onIncrementalIndexingEnd: () => Promise<void> | undefined

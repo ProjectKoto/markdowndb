@@ -109,9 +109,25 @@ export async function * processFile(
         if (config.markdownExtraHandler) {
           await config.markdownExtraHandler(relativePathForwardSlash, getSourceFunc, fileInfo, { ast, metadata: currFileInfo.metadata, links, tags: currFileInfo.metadata.declaredTags });
         }
-        handleDeclaredTags(currFileInfo.metadata!);
-        currFileInfo.declaredTags = currFileInfo.metadata.declaredTags;
       }
+    };
+
+    const handleIfDedicatedPre = async (currFileInfo: FileInfo) => {
+      if (!currFileInfo.metadata) {
+        currFileInfo.metadata = {}
+      }
+      if (!currFileInfo.referencedTags) {
+        currFileInfo.referencedTags = currFileInfo.metadata.referencedTags;
+      }
+      if (config.dedicatedExtraHandler) {
+        await config.dedicatedExtraHandler(relativePathForwardSlash, getSourceFunc, fileInfo, { metadata: currFileInfo.metadata, tags: currFileInfo.metadata.declaredTags });
+      }
+     
+    };
+
+    const handleIfDedicatedPost = async (currFileInfo: FileInfo) => {
+      handleDeclaredTags(currFileInfo.metadata!);
+      currFileInfo.declaredTags = currFileInfo.metadata!.declaredTags;
     };
 
     for (const handler of config.otherHandlers ?? []) {
@@ -120,13 +136,16 @@ export async function * processFile(
 
     // if (await config.isHasFrontMatter(relativePathForwardSlash)) {
     if (isDedicated) {
-      const source = getSourceFunc();
-      const { data: metadata, content: sourceWithoutMatter } = matter(source);
-      fileInfo.asset_raw_bytes = Buffer.from(sourceWithoutMatter, "utf-8")
+      {
+        const source = getSourceFunc();
+        const { data: metadata, content: sourceWithoutMatter } = matter(source);
+        fileInfo.asset_raw_bytes = Buffer.from(sourceWithoutMatter, "utf-8")
 
-      // will remove later
-      fileInfo._sourceWithoutMatter = sourceWithoutMatter;
-      fileInfo.metadata = metadata;
+        // will remove later
+        fileInfo._sourceWithoutMatter = sourceWithoutMatter;
+        fileInfo.metadata = metadata;
+      }
+      const metadata = fileInfo.metadata;
       const tzOffsetMinute = (() => {
         const tzOffsetStr = process.env.PROCENV_HOARD_METADATA_DATE_TIMEZONE_OFFSET_MINUTE;
         if (tzOffsetStr) {
@@ -181,19 +200,24 @@ export async function * processFile(
       fileInfo.declaredTags = metadata.declaredTags;
       fileInfo.tasks = metadata?.tasks || [];
 
+      await handleIfDedicatedPre(fileInfo);
+
       // must call and drain before first yield - it may change fileInfo
       const derivedChildFileInfoAsyncGenerator = config.deriveChildFileInfo(
         fileInfo,
-        sourceWithoutMatter,
+        fileInfo._sourceWithoutMatter,
         metadata,
       );
       for await (const derivedChildFileInfo of derivedChildFileInfoAsyncGenerator) {
+        await handleIfDedicatedPre(derivedChildFileInfo);
         await handleIfMarkdown(derivedChildFileInfo);
+        await handleIfDedicatedPost(derivedChildFileInfo);
         yield await cloneTidyFileInfoBeforeReturn(derivedChildFileInfo);
       }
 
       // return main fileInfo at the end
       await handleIfMarkdown(fileInfo);
+      await handleIfDedicatedPost(fileInfo);
       yield await cloneTidyFileInfoBeforeReturn(fileInfo);
     }
   } else {
