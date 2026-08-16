@@ -219,6 +219,8 @@ export async function * processFile(
       await handleIfMarkdown(fileInfo);
       await handleIfDedicatedPost(fileInfo);
       yield await cloneTidyFileInfoBeforeReturn(fileInfo);
+    } else {
+      yield await cloneTidyFileInfoBeforeReturn(fileInfo);
     }
   } else {
     yield await cloneTidyFileInfoBeforeReturn(fileInfo);
