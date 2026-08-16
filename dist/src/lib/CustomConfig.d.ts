@@ -26,6 +26,12 @@ export interface CustomConfig {
         links: WikiLink[];
         tags: any[];
     }) => Promise<void>) | undefined;
+    dedicatedExtraHandler: ((relativePathForwardSlash: string, getSourceFunc: () => string, fileInfo: FileInfo, otherInfo: {
+        metadata: {
+            [key: string]: any;
+        };
+        tags: any[];
+    }) => Promise<void>) | undefined;
     otherHandlers: ((relativePathForwardSlash: string, getSourceFunc: () => string, fileInfo: FileInfo) => Promise<void>)[] | undefined;
     onInitialIndexingEnd: () => Promise<void> | undefined;
     onIncrementalIndexingEnd: () => Promise<void> | undefined;

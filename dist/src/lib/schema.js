@@ -40,6 +40,7 @@ class MddbFile {
             table.boolean("has_derived_children");
             table.string("deriving_parent_id", 128);
             table.binary("asset_raw_bytes");
+            table.binary("asset_processed_bytes");
             table.string("origin_file_path", 16384).notNullable();
             table.string("origin_file_extension", 16).notNullable();
             table.text("metadata", "LONGTEXT");
@@ -131,6 +132,7 @@ MddbFile.allProperties = [
     "has_derived_children",
     "deriving_parent_id",
     "asset_raw_bytes",
+    "asset_processed_bytes",
     "origin_file_path",
     "origin_file_extension",
     "metadata",
