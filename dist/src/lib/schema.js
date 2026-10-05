@@ -31,7 +31,7 @@ class MddbFile {
     static async createTable(db, properties) {
         const creator = (table) => {
             table.string("_id").primary();
-            table.string("asset_raw_path", 16384).unique().notNullable();
+            table.string("asset_raw_path", 16384).notNullable();
             table.string("asset_locator", 16384);
             table.string("asset_type");
             table.string("asset_store_tag", 32);
